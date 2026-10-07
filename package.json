@@ -1,0 +1,14 @@
+{
+  "name": "click-fraud-backend-stage1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Baseline tahap pertama backend untuk struktur MongoDB Sistem Deteksi Fraud Klik Iklan Digital Menggunakan Machine Learning.",
+  "scripts": {
+    "init:db": "node src/initDatabase.js",
+    "verify:db": "node src/verifyDatabase.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "mongoose": "^8.0.0"
+  }
+}
