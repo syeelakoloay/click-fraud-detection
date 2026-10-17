@@ -1,69 +1,25 @@
-# Verification Result - MongoDB Backend Tahap 1
+# Catatan Hasil Pemeriksaan Proyek
 
-Tanggal verifikasi: 8 Oktober 2026
+Dokumen ini membedakan pemeriksaan database dari progres sebelumnya dan hasil tes Aktivitas 10. Hasil terminal Aktivitas 10 di bawah ditranskripsikan dari output yang diberikan pengguna pada 16 Oktober 2026; bukan klaim bahwa penyusun paket menjalankan ulang tes tersebut secara independen.
 
-Pengujian ini merupakan hasil eksekusi pengguna terhadap paket `backend-mongodb-stage1` pada MongoDB yang digunakan kelompok.
+## 1. Verifikasi database tahap sebelumnya
 
-## 1. npm install
+Pada 8 Oktober 2026, hasil pengujian pengguna terhadap paket backend MongoDB tahap 1 menunjukkan koneksi berhasil, collection `events`, `blocked_ips`, dan `model_runs` tersedia, serta index yang dicatat pada laporan sebelumnya tersedia. Rincian historis itu dipertahankan sebagai catatan tahap database sebelumnya dan tidak dihitung sebagai tes Aktivitas 10.
 
-```text
-added 20 packages, and audited 21 packages in 8s
+## 2. Output Aktivitas 10 yang diberikan pengguna
 
-2 packages are looking for funding
-  run `npm fund` for details
+- `npm install`: 85 paket ditambahkan, 86 paket diaudit, dan 0 vulnerabilities dilaporkan.
+- `npm run dev`: MongoDB berhasil terhubung; Express API berjalan di `http://localhost:5000`; health check tersedia pada `/health` dan event API pada `/api/events`.
+- `npm run check:activity10`: 8 file menampilkan `OK`; pemeriksaan sintaks Aktivitas 10 lulus.
+- `npm run test:api:activity10`: 8 tes lulus, 0 gagal, 0 dibatalkan, 0 dilewati, dan 0 todo. Suite ini menggunakan fake service.
+- `npm run test:api:activity10:mongo`: 7 tes lulus, 0 gagal, 0 dibatalkan, 0 dilewati, dan 0 todo. Database uji yang ditampilkan adalah `click_fraud_detection_test`; output menyatakan tidak ada collection atau database utama yang dihapus.
 
-found 0 vulnerabilities
-```
+## 3. Mengapa dua suite tes dipertahankan
 
-## 2. npm run init:db
+Kedua suite tidak duplikat karena memeriksa lapisan berbeda. `test:api:activity10` menggunakan fake service untuk menguji kontrak HTTP yang dapat diisolasi, seperti CORS yang diterima/ditolak, preflight, health check saat database disimulasikan terputus, validasi, JSON tidak valid, serta respons CRUD dan batch. Suite tersebut sengaja tidak membuktikan persistensi MongoDB.
 
-```text
-> click-fraud-backend-stage1@1.0.0 init:db
-> node src/initDatabase.js
+`test:api:activity10:mongo` menggunakan MongoDB aktual pada database khusus pengujian untuk memeriksa koneksi, menyimpan event melalui POST, membacanya melalui GET, memperbarui melalui PATCH, menyimpan item batch yang valid dan menolak item tidak valid, menghapus event melalui DELETE, serta memeriksa dokumen langsung melalui Mongoose. Tes ini memberi bukti integrasi/persistensi yang tidak dapat diberikan fake service. Karena tujuan dan cakupan keduanya saling melengkapi, dua suite tes tetap diperlukan untuk Progres 10.
 
-MongoDB berhasil terhubung.
-Collection dan index berhasil diinisialisasi oleh Mongoose.
-```
+## 4. Batas bukti
 
-## 3. npm run verify:db
-
-```text
-> click-fraud-backend-stage1@1.0.0 verify:db
-> node src/verifyDatabase.js
-
-MongoDB berhasil terhubung.
-
-=== VERIFIKASI COLLECTION ===
-events: ADA
-blocked_ips: ADA
-model_runs: ADA
-
-=== VERIFIKASI INDEX ===
-
-events
-{"v":2,"key":{"_id":1},"name":"_id_"}
-{"v":2,"key":{"click_id":1},"name":"click_id_1","background":true,"unique":true}
-{"v":2,"key":{"ip_address":1},"name":"ip_address_1","background":true}
-{"v":2,"key":{"timestamp":-1},"name":"timestamp_-1","background":true}
-
-blocked_ips
-{"v":2,"key":{"_id":1},"name":"_id_"}
-{"v":2,"key":{"ip_address":1},"name":"ip_address_1","background":true,"unique":true}
-
-model_runs
-{"v":2,"key":{"_id":1},"name":"_id_"}
-```
-
-## 4. Kesimpulan Pengujian
-
-Pengujian membuktikan bahwa:
-
-1. koneksi MongoDB berhasil;
-2. collection `events` tersedia;
-3. collection `blocked_ips` tersedia;
-4. collection `model_runs` tersedia;
-5. unique index `events.click_id` tersedia;
-6. index `events.ip_address` tersedia;
-7. descending index `events.timestamp` tersedia;
-8. unique index `blocked_ips.ip_address` tersedia;
-9. `model_runs` belum memiliki index tambahan selain `_id`, sesuai scope tahap ini.
+Hasil di atas mendokumentasikan output yang diberikan pengguna. Keduanya tidak mengklaim bahwa penyusun laporan menjalankan tes pada lingkungan pengguna. Hasil lulus berlaku untuk skenario yang secara eksplisit dicakup oleh skrip; tidak menggantikan uji beban, pengujian keamanan deployment, atau verifikasi seluruh skenario produksi.

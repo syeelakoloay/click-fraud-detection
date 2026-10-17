@@ -82,6 +82,30 @@ async function listEvents(options = {}) {
   };
 }
 
+async function updateEventByClickId(clickId, eventData) {
+  const normalizedClickId = assertNonEmptyString(clickId, "clickId");
+  if (!eventData || typeof eventData !== "object" || Array.isArray(eventData)) {
+    throw new TypeError("eventData harus berupa object event.");
+  }
+  if (Object.keys(eventData).length === 0) {
+    throw new TypeError("eventData tidak boleh kosong.");
+  }
+  if (Object.prototype.hasOwnProperty.call(eventData, "click_id")) {
+    throw new TypeError("click_id tidak dapat diubah setelah event dibuat.");
+  }
+  const updated = await Event.findOneAndUpdate(
+    { click_id: normalizedClickId },
+    { $set: eventData },
+    { new: true, runValidators: true }
+  ).lean().exec();
+  return updated;
+}
+
+async function deleteEventByClickId(clickId) {
+  const normalizedClickId = assertNonEmptyString(clickId, "clickId");
+  return Event.findOneAndDelete({ click_id: normalizedClickId }).lean().exec();
+}
+
 async function countEvents(options = {}) {
   const filter = buildTimestampFilter(options);
   const fraudLabel = normalizeBinaryLabel(options.is_fraudulent);
@@ -101,6 +125,8 @@ module.exports = {
   getEventByClickId,
   getEventById,
   listEvents,
+  updateEventByClickId,
+  deleteEventByClickId,
   countEvents,
   findEventsByIP,
 };
