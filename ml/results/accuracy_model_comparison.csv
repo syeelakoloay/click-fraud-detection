@@ -1,0 +1,8 @@
+model,cv_accuracy,accuracy,precision,recall,f1_score,roc_auc,best_params
+Dummy Classifier (Baseline Kelas Mayoritas),0.75175,0.752,0.0,0.0,0.0,0.5,Tidak ada tuning
+Logistic Regression,0.75175,0.752,0.0,0.0,0.0,0.4416448610157859,"{'classifier__C': 0.1, 'classifier__class_weight': None}"
+Random Forest,0.75175,0.752,0.0,0.0,0.0,0.5211425446122169,"{'classifier__class_weight': None, 'classifier__max_depth': None, 'classifier__min_samples_leaf': 5, 'classifier__n_estimators': 100}"
+Extra Trees,0.75175,0.752,0.0,0.0,0.0,0.4841122597803706,"{'classifier__class_weight': None, 'classifier__max_depth': None, 'classifier__min_samples_leaf': 5, 'classifier__n_estimators': 100}"
+Decision Tree,0.7442499999999999,0.728,0.21428571428571427,0.036290322580645164,0.06206896551724138,0.4838548816060398,"{'classifier__class_weight': None, 'classifier__max_depth': 5, 'classifier__min_samples_leaf': 1}"
+Random Forest baseline,,0.734,0.2352941176470588,0.032258064516129,0.0567375886524822,0.4949248241249142,Hasil eksperimen sebelumnya
+Random Forest tuned (dipilih berdasarkan CV F1),,0.637,0.2300469483568075,0.1975806451612903,0.2125813449023861,0.4844125343170899,Hasil eksperimen sebelumnya

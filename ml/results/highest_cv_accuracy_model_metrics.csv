@@ -1,0 +1,2 @@
+model,cv_accuracy,accuracy,precision,recall,f1_score,roc_auc,best_params
+Dummy Classifier (Baseline Kelas Mayoritas),0.75175,0.752,0.0,0.0,0.0,0.5,Tidak ada tuning

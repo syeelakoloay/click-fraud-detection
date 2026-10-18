@@ -1,0 +1,2 @@
+majority_baseline_accuracy,best_cv_accuracy_for_selected_model,best_cv_f1_for_selected_model,accuracy,precision,recall,f1_score,roc_auc
+0.752,0.64425,0.2669178794842334,0.637,0.2300469483568075,0.1975806451612903,0.21258134490238612,0.4844125343170899
