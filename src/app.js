@@ -5,6 +5,8 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const defaultServices = require("./services");
 const createEventRouter = require("./routes/eventRoutes");
+const createMonitoringRouter = require("./routes/monitoringRoutes");
+const createBlockedIPRouter = require("./routes/blockedIPRoutes");
 const { errorHandler } = require("./middleware/errorHandler");
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -60,6 +62,14 @@ function createApp(options = {}) {
   });
 
   app.use("/api/events", createEventRouter(services.eventService));
+  app.use(
+    "/api/monitoring",
+    createMonitoringRouter({
+      monitoringService: services.monitoringService,
+      modelRunService: services.modelRunService,
+    })
+  );
+  app.use("/api/blocked-ips", createBlockedIPRouter(services.blockedIPService));
 
   app.use((_req, res) => {
     res.status(404).json({

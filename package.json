@@ -2,7 +2,7 @@
   "name": "click-fraud-detection-backend",
   "version": "1.1.0",
   "private": true,
-  "description": "Sistem Deteksi Fraud Klik Iklan Digital: fondasi MongoDB Aktivitas 6, service Aktivitas 8, dan Express Event API Aktivitas 10.",
+  "description": "Sistem Deteksi Fraud Klik Iklan Digital: fondasi MongoDB Aktivitas 6, service Aktivitas 8, Express Event API Aktivitas 10, dan endpoint monitoring Aktivitas 13.",
   "scripts": {
     "init:db": "node src/initDatabase.js",
     "verify:db": "node src/verifyDatabase.js",
@@ -13,7 +13,10 @@
     "dev": "node --watch src/server.js",
     "check:activity10": "node scripts/checkActivity10Syntax.js",
     "test:api:activity10": "node --test scripts/testApiActivity10.js",
-    "test:api:activity10:mongo": "node --test scripts/testMongoIntegrationActivity10.js"
+    "test:api:activity10:mongo": "node --test scripts/testMongoIntegrationActivity10.js",
+    "check:activity13": "node scripts/checkActivity13Syntax.js",
+    "test:activity13:unit": "node --test tests/monitoringController.test.js tests/blockedIPController.test.js",
+    "test:api:activity13:mongo": "node --test scripts/testMonitoringIntegrationActivity13.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",

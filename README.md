@@ -37,13 +37,14 @@ Data dan label adalah masukan/sumber evaluasi. Keberadaan label `is_fraudulent` 
 | `src/app.js`, `src/server.js` | Konfigurasi aplikasi Express dan proses server. |
 | `src/routes/`, `src/controllers/`, `src/middleware/` | Route API event, controller request, validasi, dan penanganan error. |
 | `src/initDatabase.js`, `src/verifyDatabase.js` | Inisialisasi serta pemeriksaan collection/index MongoDB. |
-| `scripts/` | Skrip pemeriksaan sintaks, tes kontrak API dengan fake service, dan tes integrasi MongoDB aktual untuk Aktivitas 8/10. |
+| `scripts/` | Skrip pemeriksaan sintaks, unit test, dan integration test untuk Aktivitas 8, 10, dan 13. |
+| `tests/` | Unit test controller monitoring dan blocked IP Aktivitas 13; integration test aktual tersedia di `scripts/testMonitoringIntegrationActivity13.js`. |
 | `docs/` | Catatan desain, deskripsi aktivitas, daftar endpoint, panduan pengujian, dan laporan progres. |
 | `.env.example` | Contoh konfigurasi environment; salin ke `.env` untuk penggunaan lokal. Jangan membagikan `.env` yang berisi kredensial. |
 
 ## Backend yang tersedia pada Progres 10
 
-Backend memakai Node.js, Express.js, Mongoose, dan MongoDB. Endpoint berikut tersedia pada implementasi Aktivitas 10:
+Backend memakai Node.js, Express.js, Mongoose, dan MongoDB. Endpoint berikut telah tersedia dari implementasi Aktivitas 10:
 
 | Method | Endpoint | Kegunaan |
 |---|---|---|
@@ -56,6 +57,31 @@ Backend memakai Node.js, Express.js, Mongoose, dan MongoDB. Endpoint berikut ter
 | `POST` | `/api/events/ingest` | Menerima batch event JSON dan melaporkan hasil tiap item. |
 
 CORS membaca allowlist dari `CORS_ORIGINS`. API menolak field event yang tidak dikenal dan mengembalikan respons error terstruktur. Batas ukuran body JSON dan jumlah maksimum item batch merupakan batas teknis implementasi yang didokumentasikan, bukan tambahan kebutuhan yang dinyatakan dalam dokumen referensi.
+
+## Endpoint monitoring Aktivitas 13
+
+Aktivitas 13 menambahkan endpoint untuk kebutuhan monitoring dashboard dengan menggunakan service yang sudah tersedia. Endpoint baru tidak mengubah schema event, tidak menjalankan prediksi Random Forest, dan tidak menerapkan pemblokiran IP otomatis.
+
+| Method | Endpoint | Kegunaan |
+|---|---|---|
+| `GET` | `/api/monitoring/summary` | Mengambil ringkasan overview, traffic, daftar blocked IP terbatas, dan status catatan model run. |
+| `GET` | `/api/monitoring/metrics` | Mengambil metrik evaluasi dari model run terbaru yang tersimpan; `data` bernilai `null` bila belum ada record. |
+| `GET` | `/api/monitoring/traffic` | Mengambil agregasi jumlah event, fraud, dan valid per jam atau hari. |
+| `GET` | `/api/blocked-ips` | Mengambil daftar blocked IP dengan pagination. |
+
+Query `startDate` dan `endDate` dapat digunakan pada summary dan traffic. Query `interval` hanya menerima `hour` atau `day`. Daftar blocked IP menerima `page` dan `limit`. Lihat `docs/ENDPOINTS_AKTIVITAS_13.md` untuk kontrak respons dan contoh perintah pengujian.
+
+Perintah pemeriksaan Aktivitas 13: 
+
+```bash
+npm run check:activity13
+npm run test:activity13:unit
+npm run test:api:activity13:mongo
+```
+
+Unit test menggunakan service tiruan (*mock*) untuk memeriksa controller secara terisolasi dan deterministik, termasuk pemetaan parameter, bentuk respons, serta penerusan error. Mock mengurangi ketergantungan pada jaringan/database dan memudahkan pengujian cabang error yang sulit dibuat secara konsisten pada database aktual; namun, mock tidak membuktikan query Mongoose, agregasi MongoDB, atau pendaftaran route benar-benar bekerja bersama. Karena itu, integration test Aktivitas 13 menggunakan Express, service asli, Mongoose, dan MongoDB yang benar-benar berjalan untuk memverifikasi respons empat endpoint serta data yang tersimpan. Kedua pendekatan saling melengkapi: unit test cepat mengisolasi regresi logika, sedangkan integration test menguji sambungan komponen dan persistensi nyata.
+
+Integration test harus dijalankan menggunakan `TEST_MONGODB_URI` yang menunjuk ke database khusus dengan nama berakhiran `_test` atau `_testing`. Skrip menolak nama database uji yang sama dengan `MONGODB_URI`, membuat record dengan identifier unik, dan hanya menghapus record yang dibuat oleh proses pengujian tersebut. Skrip tidak melakukan `dropDatabase`, tidak menghapus collection, dan tidak membersihkan seluruh database. Fixture angka metrik, IP dokumentasi, serta timestamp masa depan hanya dibuat selama tes di database pengujian; fixture tersebut bukan data produksi atau angka yang dipakai oleh controller sebagai respons tetap.
 
 ## Menyiapkan dan menjalankan backend
 
@@ -89,37 +115,8 @@ npm run dev
 
 Server development secara default tersedia di `http://localhost:5000`. Periksa `http://localhost:5000/health` untuk health check.
 
-## Pemeriksaan dan pengujian
-
-Perintah pemeriksaan Aktivitas 10:
-
-```bash
-npm run check:activity10
-npm run test:api:activity10
-npm run test:api:activity10:mongo
-```
-
-Kedua perintah tes dipertahankan karena menguji lapisan berbeda dan saling melengkapi. `test:api:activity10` memakai *fake service* untuk menguji kontrak HTTP secara terisolasi, termasuk CORS, preflight, penanganan database yang disimulasikan terputus, validasi, JSON tidak valid, serta respons CRUD dan batch tanpa mengubah database. `test:api:activity10:mongo` menguji integrasi Express, service event, Mongoose, dan MongoDB aktual: tes melakukan POST, GET, PATCH, batch ingestion, dan DELETE lalu memverifikasi persistensi langsung di database uji. Tes fake service lebih deterministik dan dapat menguji jalur error yang mudah disimulasikan; tes integrasi membuktikan persistensi nyata. Keduanya tidak duplikat, dan lulusnya satu suite tidak menggantikan bukti dari suite lainnya.
-
-Output terminal terbaru yang diberikan pengguna menunjukkan pemeriksaan sintaks lulus untuk 8 file, 8 tes kontrak API lulus, dan 7 tes integrasi MongoDB aktual lulus pada database `click_fraud_detection_test`. Output startup juga melaporkan MongoDB berhasil terhubung. Hasil ini adalah bukti yang diberikan pengguna dari lingkungannya; laporan dan dokumentasi ini tidak mengklaim menjalankan ulang pengujian tersebut secara independen. Skrip tes mengharuskan database uji memiliki nama berakhiran `_test` atau `_testing`, menolak nama yang sama dengan database utama, dan hanya membersihkan record milik tes.
-
 ## Batasan dan hal yang tidak boleh diasumsikan
 
-- Progres 10 tidak menjalankan training atau prediksi Random Forest melalui endpoint API.
 - `is_fraudulent` diperlakukan sebagai label/input event, bukan prediksi yang dibuat oleh Express.
-- Tidak ada kebijakan pemblokiran otomatis IP yang ditambahkan pada Aktivitas 10.
-- Endpoint `blocked_ips` dan `model_runs` tidak termasuk dalam API Aktivitas 10 meskipun model/service terkait tersedia dari progres sebelumnya.
 - Dataset tidak dimuat otomatis ke MongoDB saat server dimulai.
-- Artefak model dan evaluasi yang tersedia berasal dari progres sebelumnya; README ini tidak menyatakan bahwa model tersebut telah divalidasi ulang sebagai bagian dari Aktivitas 10.
 - Dashboard React merupakan bagian dari rancangan sistem keseluruhan, tetapi aplikasi frontend lengkap tidak termasuk dalam ZIP ini.
-
-## Dokumentasi lanjutan
-
-- `docs/AKTIVITAS_10_EXPRESS_EVENT_API.md` — ringkasan implementasi Aktivitas 10.
-- `docs/ENDPOINTS_AKTIVITAS_10.md` — daftar route, request, dan response.
-- `docs/PANDUAN_PENGUJIAN_AKTIVITAS_10.md` — langkah pengujian API.
-- `docs/INTEGRATION_TEST_MONGODB.md` — panduan tes integrasi MongoDB aktual dan keselamatan database uji.
-- `docs/AKTIVITAS_8_SERVICE_DATABASE.md` — dokumentasi service database dari Aktivitas 8.
-- `docs/DESIGN_NOTES.md` — catatan desain yang menyertai proyek.
-- `docs/VERIFICATION_RESULT.md` — bukti historis inisialisasi dan pemeriksaan database tahap sebelumnya.
-- `docs/Laporan_Progres_10_Express_Event_API.docx` — laporan Progres 10 dan ruang untuk screenshot output terminal.
