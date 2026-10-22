@@ -7,7 +7,17 @@ function errorHandler(error, _req, res, _next) {
   let code = "INTERNAL_SERVER_ERROR";
 
   let safeMessage;
-  if (error.code === 11000) {
+  if (error.importCode) {
+    // Import-specific errors carry a stable, safe code from the CSV endpoint.
+    // Unexpected persistence errors intentionally remain 5xx responses rather
+    // than being mislabeled as ordinary invalid rows.
+    code = error.importCode;
+    if (status >= 500) {
+      safeMessage = error.message || "Penyimpanan dataset tidak tersedia.";
+    } else {
+      safeMessage = error.message || "Permintaan import tidak valid.";
+    }
+  } else if (error.code === 11000) {
     status = 409;
     code = "DUPLICATE_CLICK_ID";
     safeMessage = "click_id sudah terdaftar.";
