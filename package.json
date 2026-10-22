@@ -2,7 +2,7 @@
   "name": "click-fraud-detection-backend",
   "version": "1.1.0",
   "private": true,
-  "description": "Sistem Deteksi Fraud Klik Iklan Digital: fondasi MongoDB Aktivitas 6, service Aktivitas 8, Express Event API Aktivitas 10, dan endpoint monitoring Aktivitas 13.",
+  "description": "Sistem Deteksi Fraud Klik Iklan Digital: MongoDB, service, Express Event API, monitoring, dan import dataset CSV.",
   "scripts": {
     "init:db": "node src/initDatabase.js",
     "verify:db": "node src/verifyDatabase.js",
@@ -16,7 +16,13 @@
     "test:api:activity10:mongo": "node --test scripts/testMongoIntegrationActivity10.js",
     "check:activity13": "node scripts/checkActivity13Syntax.js",
     "test:activity13:unit": "node --test tests/monitoringController.test.js tests/blockedIPController.test.js",
-    "test:api:activity13:mongo": "node --test scripts/testMonitoringIntegrationActivity13.js"
+    "test:api:activity13:mongo": "node --test scripts/testMonitoringIntegrationActivity13.js",
+    "test:csv-parser": "node --test scripts/testCsvParser.js",
+    "test:api:dataset-import": "node --test scripts/testApiDatasetImport.js",
+    "check:dataset-import": "node scripts/checkDatasetImportSyntax.js",
+    "test:api:dataset-import:mongo": "node --test scripts/testDatasetImportMongoIntegration.js",
+    "test:dataset-import-validation": "node --test scripts/testDatasetImportValidation.js",
+    "test:dataset-import-error-handler": "node --test scripts/testDatasetImportErrorHandler.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",
