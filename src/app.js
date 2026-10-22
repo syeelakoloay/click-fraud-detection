@@ -7,6 +7,9 @@ const defaultServices = require("./services");
 const createEventRouter = require("./routes/eventRoutes");
 const createMonitoringRouter = require("./routes/monitoringRoutes");
 const createBlockedIPRouter = require("./routes/blockedIPRoutes");
+// [Aktivitas 17 - Finkly] route dan service real-time prediction
+const createRealtimeRouter = require("./routes/realtimeRoutes");
+const realtimePredictionService = require("./services/realtimePredictionService");
 const { errorHandler } = require("./middleware/errorHandler");
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -70,6 +73,15 @@ function createApp(options = {}) {
     })
   );
   app.use("/api/blocked-ips", createBlockedIPRouter(services.blockedIPService));
+
+  // [Aktivitas 17 - Finkly] route uji real-time prediction
+  app.use(
+    "/api/realtime",
+    createRealtimeRouter(
+      (options.services && options.services.realtimePredictionService) ||
+        realtimePredictionService
+    )
+  );
 
   app.use((_req, res) => {
     res.status(404).json({
