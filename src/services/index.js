@@ -1,3 +1,4 @@
+
 "use strict";
 
 module.exports = {
@@ -5,4 +6,5 @@ module.exports = {
   blockedIPService: require("./blockedIPService"),
   modelRunService: require("./modelRunService"),
   monitoringService: require("./monitoringService"),
+  predictionService: require("./predictionService"),
 };
