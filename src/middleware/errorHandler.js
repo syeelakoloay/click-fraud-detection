@@ -1,3 +1,4 @@
+
 "use strict";
 
 function errorHandler(error, _req, res, _next) {
@@ -7,11 +8,10 @@ function errorHandler(error, _req, res, _next) {
   let code = "INTERNAL_SERVER_ERROR";
 
   let safeMessage;
+
   if (error.importCode) {
-    // Import-specific errors carry a stable, safe code from the CSV endpoint.
-    // Unexpected persistence errors intentionally remain 5xx responses rather
-    // than being mislabeled as ordinary invalid rows.
     code = error.importCode;
+
     if (status >= 500) {
       safeMessage = error.message || "Penyimpanan dataset tidak tersedia.";
     } else {
@@ -35,15 +35,23 @@ function errorHandler(error, _req, res, _next) {
   } else if (status === 404) {
     code = "NOT_FOUND";
     safeMessage = error.message || "Endpoint tidak ditemukan.";
-  } else if (error.name === "ValidationError" || error.name === "CastError" || error.name === "TypeError" || error.name === "RangeError") {
-    if (!error.status) status = 400;
+  } else if (
+    status === 400 ||
+    error.name === "ValidationError" ||
+    error.name === "CastError" ||
+    error.name === "TypeError" ||
+    error.name === "RangeError"
+  ) {
+    if (status >= 500 || !error.status) status = 400;
     code = "VALIDATION_ERROR";
     safeMessage = error.message || "Permintaan tidak valid.";
   }
 
-  const message = safeMessage || (status >= 500
-    ? "Terjadi kesalahan pada server. Periksa log server untuk detailnya."
-    : error.message || "Permintaan tidak valid.");
+  const message =
+    safeMessage ||
+    (status >= 500
+      ? "Terjadi kesalahan pada server. Periksa log server untuk detailnya."
+      : error.message || "Permintaan tidak valid.");
 
   res.status(status).json({ error: { code, message } });
 }

@@ -1,16 +1,19 @@
 "use strict";
 
+
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const defaultServices = require("./services");
 const createEventRouter = require("./routes/eventRoutes");
+const createPredictionRouter = require("./routes/predictionRoutes");
 const createMonitoringRouter = require("./routes/monitoringRoutes");
 const createBlockedIPRouter = require("./routes/blockedIPRoutes");
 // [Aktivitas 17 - Finkly] route dan service real-time prediction
 const createRealtimeRouter = require("./routes/realtimeRoutes");
 const realtimePredictionService = require("./services/realtimePredictionService");
 const { errorHandler } = require("./middleware/errorHandler");
+
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
@@ -65,6 +68,11 @@ function createApp(options = {}) {
   });
 
   app.use("/api/events", createEventRouter(services.eventService));
+  app.use(
+  "/api/predict",
+  createPredictionRouter(services.predictionService)
+);
+
   app.use(
     "/api/monitoring",
     createMonitoringRouter({
