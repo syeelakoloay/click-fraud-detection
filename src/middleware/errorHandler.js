@@ -1,4 +1,3 @@
-
 "use strict";
 
 function errorHandler(error, _req, res, _next) {
@@ -52,6 +51,17 @@ function errorHandler(error, _req, res, _next) {
     (status >= 500
       ? "Terjadi kesalahan pada server. Periksa log server untuk detailnya."
       : error.message || "Permintaan tidak valid.");
+
+  if (status >= 500) {
+    console.error(
+      "[ERROR]",
+      status,
+      code,
+      "-",
+      error.message,
+      error.cause && error.cause.code ? `(${error.cause.code})` : "",
+    );
+  }
 
   res.status(status).json({ error: { code, message } });
 }

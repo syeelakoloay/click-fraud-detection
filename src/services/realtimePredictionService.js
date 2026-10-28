@@ -17,8 +17,7 @@
 const { findEventsByIP } = require("./eventService");
 
 // Lama jendela riwayat (menit). Bisa diubah lewat .env.
-const HISTORY_WINDOW_MINUTES =
-  Number(process.env.HISTORY_WINDOW_MINUTES) || 10;
+const HISTORY_WINDOW_MINUTES = Number(process.env.HISTORY_WINDOW_MINUTES) || 10;
 
 // Maksimal event riwayat yang dibaca (listEvents membatasi maks. 100).
 const HISTORY_LIMIT = 100;
@@ -31,14 +30,29 @@ const PREDICTION_TIMEOUT_MS = 5000;
 // Field mentah event yang dipakai model Bryan (ml/feature_engineering.py).
 // click_hour dan click_day_of_week TIDAK ada di sini karena dihitung dari timestamp.
 const MODEL_RAW_FIELDS = [
-  "click_duration", "scroll_depth", "mouse_movement", "keystrokes_detected",
-  "click_frequency", "time_since_last_click", "VPN_usage", "proxy_usage",
-  "device_type", "browser", "operating_system", "ad_position",
+  "click_duration",
+  "scroll_depth",
+  "mouse_movement",
+  "keystrokes_detected",
+  "click_frequency",
+  "time_since_last_click",
+  "VPN_usage",
+  "proxy_usage",
+  "device_type",
+  "browser",
+  "operating_system",
+  "ad_position",
   "device_ip_reputation",
 ];
 
 const DAY_NAMES = [
-  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ];
 
 // ------------------------------------------------------------
@@ -49,12 +63,18 @@ function validateEvent(event) {
     throw new TypeError("Event harus berupa object.");
   }
   const required = [
-    "click_id", "ip_address", "timestamp",
+    "click_id",
+    "ip_address",
+    "timestamp",
     // field mentah yang dibutuhkan untuk membentuk feature model
     ...MODEL_RAW_FIELDS,
   ];
   for (const field of required) {
-    if (event[field] === undefined || event[field] === null || event[field] === "") {
+    if (
+      event[field] === undefined ||
+      event[field] === null ||
+      event[field] === ""
+    ) {
       throw new TypeError(`Field ${field} wajib diisi.`);
     }
   }
@@ -87,7 +107,11 @@ async function getHistoryByIp(event, windowMinutes = HISTORY_WINDOW_MINUTES) {
 // ------------------------------------------------------------
 // Langkah 2: ringkas riwayat menjadi angka
 // ------------------------------------------------------------
-function summarizeHistory(history, currentTimestamp, windowMinutes = HISTORY_WINDOW_MINUTES) {
+function summarizeHistory(
+  history,
+  currentTimestamp,
+  windowMinutes = HISTORY_WINDOW_MINUTES,
+) {
   const clickCount = history.length;
   const fraudCount = history.filter((h) => h.is_fraudulent === 1).length;
 
@@ -158,23 +182,45 @@ function buildPayload(event, historySummary) {
 // Langkah 4: kirim ke model, terima { label, probability }
 // ------------------------------------------------------------
 async function sendToModel(payload) {
-  // Mode tiruan: dipakai selama endpoint Miceflona belum jadi.
+  // Mode tiruan: dipakai kalau PREDICTION_URL kosong.
   if (!PREDICTION_URL) {
     return { label: 0, probability: 0.1, source: "mock" };
   }
 
+  // Model hanya menerima 15 feature, jadi hanya "features" yang dikirim.
   const response = await fetch(PREDICTION_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload.features),
     signal: AbortSignal.timeout(PREDICTION_TIMEOUT_MS),
   });
 
   if (!response.ok) {
-    throw new Error(`Endpoint prediction merespons error ${response.status}`);
+    const err = await response.json().catch(() => ({}));
+    throw new Error(
+      `Endpoint prediction merespons error ${response.status}: ${
+        (err.error && err.error.message) || ""
+      }`,
+    );
   }
+
   const result = await response.json();
-  return { ...result, source: "model" };
+  const label = Number(result.prediction);
+  const fraudProbability = Number(
+    result.probabilities && result.probabilities.Fraud,
+  );
+
+  // Periksa jawaban model sebelum dipakai.
+  if (
+    ![0, 1].includes(label) ||
+    !Number.isFinite(fraudProbability) ||
+    fraudProbability < 0 ||
+    fraudProbability > 1
+  ) {
+    throw new Error("Respons endpoint prediction tidak valid.");
+  }
+
+  return { label, probability: fraudProbability, source: "model" };
 }
 
 // ------------------------------------------------------------

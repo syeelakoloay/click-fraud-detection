@@ -1,0 +1,41 @@
+### C. Isi 3 event riwayat untuk IP 10.10.10.2 (jalankan SEKALI)
+POST http://localhost:5000/api/events/ingest
+Content-Type: application/json
+
+{
+  "events": [
+    {"click_id": "RIW-001", "timestamp": "2026-10-22T10:00:00Z", "user_id": "uji-user-1", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "referrer_url": "https://example.test/ref", "page_url": "https://example.test/landing", "click_duration": 2.1, "scroll_depth": 40, "mouse_movement": 12, "keystrokes_detected": 2, "ad_position": "Top", "click_frequency": 1, "time_since_last_click": 10, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0, "bot_likelihood_score": 0.2, "is_fraudulent": 0},
+    {"click_id": "RIW-002", "timestamp": "2026-10-22T10:02:00Z", "user_id": "uji-user-1", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "referrer_url": "https://example.test/ref", "page_url": "https://example.test/landing", "click_duration": 0.3, "scroll_depth": 5, "mouse_movement": 1, "keystrokes_detected": 0, "ad_position": "Top", "click_frequency": 8, "time_since_last_click": 2, "device_ip_reputation": "Bad", "VPN_usage": 1, "proxy_usage": 1, "bot_likelihood_score": 0.9, "is_fraudulent": 1},
+    {"click_id": "RIW-003", "timestamp": "2026-10-22T10:05:00Z", "user_id": "uji-user-1", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "referrer_url": "https://example.test/ref", "page_url": "https://example.test/landing", "click_duration": 1.8, "scroll_depth": 30, "mouse_movement": 20, "keystrokes_detected": 1, "ad_position": "Top", "click_frequency": 2, "time_since_last_click": 20, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0, "bot_likelihood_score": 0.3, "is_fraudulent": 0}
+  ]
+}
+
+### Skenario 1: IP baru tanpa riwayat
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-001", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.1", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### Skenario 2: IP yang punya riwayat
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-002", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### Skenario 3: riwayat di luar jendela 10 menit
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-003", "timestamp": "2026-10-22T10:30:00Z", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### Skenario 4: input tidak valid (field browser dihapus)
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-004", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.1", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A20: uji endpoint prediction langsung
+POST http://localhost:5000/api/predict
+Content-Type: application/json
+
+{"click_hour": 10, "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "VPN_usage": 0, "proxy_usage": 0, "click_day_of_week": "Thursday", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "device_ip_reputation": "Good"}
