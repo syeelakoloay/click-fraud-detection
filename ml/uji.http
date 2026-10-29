@@ -39,3 +39,30 @@ POST http://localhost:5000/api/predict
 Content-Type: application/json
 
 {"click_hour": 10, "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "VPN_usage": 0, "proxy_usage": 0, "click_day_of_week": "Thursday", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "device_ip_reputation": "Good"}
+
+### A23: uji langsung endpoint prediction (cek kompatibilitas setelah A22)
+POST http://localhost:5000/api/predict
+Content-Type: application/json
+
+{"click_hour": 10, "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "VPN_usage": 0, "proxy_usage": 0, "click_day_of_week": "Thursday", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "device_ip_reputation": "Good"}
+
+### A23-1: event fraud dari IP baru -> IP harus diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-023-A", "timestamp": "2026-10-29T23:05:39Z", "ip_address": "10.10.10.9", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A23-2: daftar IP yang diblokir
+GET http://localhost:5000/api/blocked-ips
+
+### A23-3: event valid dari IP lain -> tidak diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-023-B", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.1", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A23-4: input tidak valid (field browser dihapus) -> tidak boleh memblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-023-C", "timestamp": "2026-10-29T10:06:00Z", "ip_address": "10.10.10.8", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
