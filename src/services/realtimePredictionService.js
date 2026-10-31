@@ -15,7 +15,8 @@
 // ============================================================
 
 const { findEventsByIP } = require("./eventService");
-const { addBlockedIP } = require("./blockedIPService");
+
+const { addBlockedIP, getBlockedIP } = require("./blockedIPService");
 
 // Lama jendela riwayat (menit). Bisa diubah lewat .env.
 const HISTORY_WINDOW_MINUTES = Number(process.env.HISTORY_WINDOW_MINUTES) || 10;
@@ -230,6 +231,21 @@ async function sendToModel(payload) {
 async function predictWithHistory(event) {
   validateEvent(event);
 
+  // Aktivitas 25: IP yang sudah ada di daftar blokir tidak perlu diprediksi lagi.
+  const blockedEntry = await getBlockedIP(event.ip_address);
+  if (blockedEntry) {
+    return {
+      click_id: event.click_id,
+      ip_address: event.ip_address,
+      label: null,
+      probability: null,
+      prediction_source: "ip_list",
+      blocked_by_ip_list: true,
+      ip_blocked: true,
+      history_used: null,
+    };
+  }
+
   const history = await getHistoryByIp(event);
   const summary = summarizeHistory(history, event.timestamp);
   const payload = buildPayload(event, summary);
@@ -249,6 +265,7 @@ async function predictWithHistory(event) {
     label: result.label, // 1 = fraud, 0 = valid
     probability: result.probability,
     prediction_source: result.source, // "mock" atau "model"
+    blocked_by_ip_list: false,
     ip_blocked: ipBlocked,
     history_used: summary,
   };

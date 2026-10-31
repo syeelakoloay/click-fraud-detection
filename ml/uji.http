@@ -66,3 +66,39 @@ POST http://localhost:5000/api/realtime/test-history
 Content-Type: application/json
 
 {"click_id": "UJI-023-C", "timestamp": "2026-10-29T10:06:00Z", "ip_address": "10.10.10.8", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-0: daftar blokir awal
+GET http://localhost:5000/api/blocked-ips
+
+### A25-1: event fraud pertama dari 10.10.10.25 -> model jalan, IP diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-A1", "timestamp": "2026-10-29T23:05:39Z", "ip_address": "10.10.10.25", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-2: event kedua dari IP yang sama -> blocked by IP list
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-A2", "timestamp": "2026-10-29T23:06:10Z", "ip_address": "10.10.10.25", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-3: IP sama, fitur terlihat valid -> tetap blocked by IP list
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-A3", "timestamp": "2026-10-29T23:07:00Z", "ip_address": "10.10.10.25", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-4: IP lain, fitur valid -> jalur normal, tidak diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-B", "timestamp": "2026-10-29T23:08:00Z", "ip_address": "10.10.10.26", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-5: input tidak valid dari IP terblokir -> tetap ditolak 400
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-C", "timestamp": "2026-10-29T23:09:00Z", "ip_address": "10.10.10.25", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-6: daftar blokir akhir
+GET http://localhost:5000/api/blocked-ips
