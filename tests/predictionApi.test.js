@@ -105,6 +105,7 @@ test("POST /api/predict meneruskan error layanan ML ke error handler", async () 
         "Layanan ML tidak dapat dihubungi. Pastikan server Python berjalan."
       );
       error.status = 503;
+      error.code = "ML_SERVICE_UNAVAILABLE";
       throw error;
     },
   };
@@ -116,6 +117,8 @@ test("POST /api/predict meneruskan error layanan ML ke error handler", async () 
       body: JSON.stringify(sampleFeatures),
     });
 
+    const body = await response.json();
     assert.equal(response.status, 503);
+    assert.equal(body.error.code, "ML_SERVICE_UNAVAILABLE");
   });
 });

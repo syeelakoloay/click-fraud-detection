@@ -13,6 +13,7 @@ const createBlockedIPRouter = require("./routes/blockedIPRoutes");
 const createRealtimeRouter = require("./routes/realtimeRoutes");
 const realtimePredictionService = require("./services/realtimePredictionService");
 const { errorHandler } = require("./middleware/errorHandler");
+const { requestLogger } = require("./middleware/requestLogger");
 
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -39,6 +40,8 @@ function createApp(options = {}) {
   const app = express();
 
   app.disable("x-powered-by");
+
+  app.use(requestLogger);
 
   app.use(
     cors({
