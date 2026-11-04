@@ -102,3 +102,36 @@ Content-Type: application/json
 
 ### A25-6: daftar blokir akhir
 GET http://localhost:5000/api/blocked-ips
+
+### A27-I: impor dataset 5.000 event (jalankan SEKALI)
+POST http://localhost:5000/api/events/import
+Content-Type: text/csv
+
+< ../dataset/click_fraud_dataset.csv
+
+### A27-0: daftar blokir awal (harus kosong)
+GET http://localhost:5000/api/blocked-ips
+
+### A27-1: event fraud dari IP 10.10.10.27 -> diprediksi model, IP diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-027-A", "timestamp": "2026-10-29T23:05:39Z", "ip_address": "10.10.10.27", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A27-2: event berikutnya dari IP yang sama -> blocked by IP list
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-027-B", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.27", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A27-3: IP lain 10.10.10.28 (kontrol) -> diproses model, tidak diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-027-C", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.28", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A27-4: daftar blokir sesudah skenario
+GET http://localhost:5000/api/blocked-ips
+
+### A27-5: ringkasan monitoring (memuat blockedIPs untuk dashboard)
+GET http://localhost:5000/api/monitoring/summary
