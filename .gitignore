@@ -1,6 +1,12 @@
-node_modules/
-.env
-npm-debug.log*
-.DS_Store
+# Dependencies and build output
+**/node_modules/
+frontend/dist/
 
-.venv-ml/
+# Local environment files (keep .env.example tracked)
+**/.env
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/

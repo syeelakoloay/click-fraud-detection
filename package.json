@@ -1,36 +1,18 @@
 {
-  "name": "click-fraud-detection-backend",
-  "version": "1.1.0",
+  "name": "clickguard-aktivitas28-workspace",
+  "version": "1.0.0",
   "private": true,
-  "description": "Sistem Deteksi Fraud Klik Iklan Digital: MongoDB, service, Express Event API, monitoring, dan import dataset CSV.",
+  "description": "Workspace terpadu frontend React dan backend Express untuk Aktivitas 28.",
   "scripts": {
-    "init:db": "node src/initDatabase.js",
-    "verify:db": "node src/verifyDatabase.js",
-    "check:activity8": "node scripts/checkActivity8Syntax.js",
-    "test:activity8:unit": "node scripts/testActivity8Utils.js",
-    "test:activity8": "node scripts/testActivity8Services.js",
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "check:activity10": "node scripts/checkActivity10Syntax.js",
-    "test:api:activity10": "node --test scripts/testApiActivity10.js",
-    "test:api:activity10:mongo": "node --test scripts/testMongoIntegrationActivity10.js",
-    "check:activity13": "node scripts/checkActivity13Syntax.js",
-    "test:activity13:unit": "node --test tests/monitoringController.test.js tests/blockedIPController.test.js",
-    "test:api:activity13:mongo": "node --test scripts/testMonitoringIntegrationActivity13.js",
-    "test:csv-parser": "node --test scripts/testCsvParser.js",
-    "test:api:dataset-import": "node --test scripts/testApiDatasetImport.js",
-    "check:dataset-import": "node scripts/checkDatasetImportSyntax.js",
-    "test:api:dataset-import:mongo": "node --test scripts/testDatasetImportMongoIntegration.js",
-    "test:dataset-import-validation": "node --test scripts/testDatasetImportValidation.js",
-    "test:dataset-import-error-handler": "node --test scripts/testDatasetImportErrorHandler.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.0.0",
-    "mongoose": "^8.0.0",
-    "cors": "^2.8.6",
-    "express": "^5.1.0"
-  },
-  "engines": {
-    "node": ">=18"
+    "install:frontend": "npm --prefix frontend ci",
+    "install:backend": "npm --prefix backend ci",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "test:frontend": "npm --prefix frontend run test:activity16 && npm --prefix frontend run test:activity28",
+    "check:backend": "npm --prefix backend run check:activity28 && npm --prefix backend run check:syntax",
+    "test:backend": "npm --prefix backend test",
+    "verify:activity28": "npm run check:backend && npm run test:frontend && npm run build:frontend"
   }
 }

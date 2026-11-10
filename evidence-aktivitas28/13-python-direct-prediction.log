@@ -1,0 +1,9 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   515  100    95  100   420    752   3327 --:--:-- --:--:-- --:--:--  4087HTTP/1.0 200 OK
+Server: BaseHTTP/0.6 Python/3.14.3
+Date: Tue, 10 Nov 2026 03:56:20 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 95
+
+{"prediction": 0, "classification": "Valid", "probabilities": {"Valid": 0.605, "Fraud": 0.395}}

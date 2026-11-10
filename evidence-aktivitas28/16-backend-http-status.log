@@ -1,0 +1,6 @@
+health               HTTP 200
+events               HTTP 200
+traffic              HTTP 200
+metrics              HTTP 200
+summary              HTTP 200
+blocked-ips          HTTP 200
