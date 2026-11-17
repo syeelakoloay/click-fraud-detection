@@ -1072,6 +1072,10 @@ function TrafficChart({ events, period }) {
   const selectedFraudUclGap = selectedPoint && Number.isFinite(selectedPoint.threshold)
     ? Math.max(0, selectedPoint.threshold - selectedPoint.fraudTotal)
     : null;
+  const selectedBudgetWasteRate = selectedPoint && selectedPoint.budgetTotal > 0
+    ? selectedPoint.fraudBudget / selectedPoint.budgetTotal * 100
+    : 0;
+  const selectedValidBudgetRate = 100 - selectedBudgetWasteRate;
   const selectedFraudUclRemainingRatio = selectedFraudUclRatio === null
     ? null
     : Math.max(0, 100 - selectedFraudUclRatio);
@@ -1320,13 +1324,14 @@ function TrafficChart({ events, period }) {
           <div className="selected-insight-section">
             <h4>Anggaran</h4>
             <div className="selected-budget-grid">
+              <div className="budget-card-total"><span>Total Estimasi Biaya</span><strong>{rupiahFormat(selectedPoint.budgetTotal)}</strong></div>
               <div className="budget-card-valid"><span>Estimasi Biaya Valid</span><strong>{rupiahFormat(selectedPoint.validBudget)}</strong></div>
               <div className="budget-card-fraud"><span>Estimasi Biaya Fraud</span><strong>{rupiahFormat(selectedPoint.fraudBudget)}</strong></div>
-              <div><span>Total Estimasi Biaya</span><strong>{rupiahFormat(selectedPoint.budgetTotal)}</strong></div>
-              <div><span>Potensi Pemborosan</span><strong>{percent(selectedPoint.budgetTotal > 0 ? selectedPoint.fraudBudget / selectedPoint.budgetTotal * 100 : 0)}</strong></div>
+              <div className="budget-card-valid-rate"><span>Persentase Biaya Valid</span><strong>{percent(selectedValidBudgetRate)}</strong></div>
+              <div className="budget-card-waste"><span>Potensi Pemborosan</span><strong>{percent(selectedBudgetWasteRate)}</strong></div>
             </div>
             <p className="selected-budget-analysis">
-              <strong>Analisis Anggaran:</strong> Dari total estimasi biaya {rupiahFormat(selectedPoint.budgetTotal)}, sekitar {rupiahFormat(selectedPoint.validBudget)} digunakan untuk traffic berlabel Valid yang berpotensi memberi nilai bagi kampanye, sedangkan {rupiahFormat(selectedPoint.fraudBudget)} berpotensi terbuang akibat traffic berlabel Fraud. Potensi pemborosan anggaran pada interval ini mencapai {percent(selectedPoint.budgetTotal > 0 ? selectedPoint.fraudBudget / selectedPoint.budgetTotal * 100 : 0)}.
+              <strong>Analisis Anggaran:</strong> Dari total estimasi biaya {rupiahFormat(selectedPoint.budgetTotal)}, sekitar {rupiahFormat(selectedPoint.validBudget)} digunakan untuk traffic berlabel Valid yang berpotensi memberi nilai bagi kampanye, sedangkan {rupiahFormat(selectedPoint.fraudBudget)} berpotensi terbuang akibat traffic berlabel Fraud. Potensi pemborosan anggaran pada interval ini mencapai {percent(selectedBudgetWasteRate)}.
             </p>
             <p className="selected-insight-footnote">
               {selectedPoint.total === 0

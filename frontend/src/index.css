@@ -187,17 +187,27 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .selected-insight-section h4 { margin: 0 0 6px; color: #314563; font-size: 12px; font-weight: 800; }
 .selected-insight-section > p { margin: 5px 0 0; color: #64748d; font-size: 11px; line-height: 1.7; }
 .selected-insight-section strong { color: #354965; }
-.selected-insight-stats, .selected-budget-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.selected-insight-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.selected-budget-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .selected-insight-stats div, .selected-budget-grid div { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border: 1px solid #e8edf5; border-radius: 9px; background: #fbfcff; }
 .selected-insight-stats span, .selected-budget-grid span { color: #8997ac; font-size: 9px; line-height: 1.4; }
 .selected-insight-stats strong { color: #273e5f; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .selected-budget-grid strong { color: #273e5f; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.selected-budget-grid .budget-card-total { grid-column: 1 / -1; border-color: #dce5f3; background: #f4f7fd; }
+.selected-budget-grid .budget-card-total span { color: #61738f; }
+.selected-budget-grid .budget-card-total strong { color: #273e5f; }
 .selected-budget-grid .budget-card-valid { border-color: #cfe6db; background: #eafbf4; }
 .selected-budget-grid .budget-card-valid span { color: #337a5b; }
 .selected-budget-grid .budget-card-valid strong { color: var(--green); }
 .selected-budget-grid .budget-card-fraud { border-color: #f4cbd3; background: #fff0f3; }
 .selected-budget-grid .budget-card-fraud span { color: #b64059; }
 .selected-budget-grid .budget-card-fraud strong { color: var(--rose); }
+.selected-budget-grid .budget-card-valid-rate { border-color: #cfe6db; background: #eafbf4; }
+.selected-budget-grid .budget-card-valid-rate span { color: #337a5b; }
+.selected-budget-grid .budget-card-valid-rate strong { color: var(--green); }
+.selected-budget-grid .budget-card-waste { border-color: #f4cbd3; background: #fff0f3; }
+.selected-budget-grid .budget-card-waste span { color: #b64059; }
+.selected-budget-grid .budget-card-waste strong { color: var(--rose); }
 .selected-insight-footnote { color: #8b98aa !important; font-size: 9px !important; line-height: 1.6 !important; }
 .selected-budget-outcome { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
 .selected-budget-outcome p { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 9px 10px; border: 1px solid #e8edf5; border-radius: 9px; background: #fbfcff; }
