@@ -8,8 +8,8 @@ const {
   validateIntegerFields,
 } = require("../utils/datasetImportValidation");
 
-// The canonical source dataset contains these 21 columns. Keep this contract
-// aligned with dataset/click_fraud_dataset.csv and the existing Event schema.
+// The canonical source dataset contains 22 columns, including per-event budget in Rupiah.
+// Keep this contract aligned with dataset/click_fraud_dataset.csv and the Event schema.
 const DATASET_HEADERS = Object.freeze([
   "click_id",
   "timestamp",
@@ -32,6 +32,7 @@ const DATASET_HEADERS = Object.freeze([
   "proxy_usage",
   "bot_likelihood_score",
   "is_fraudulent",
+  "budget",
 ]);
 
 const MAX_IMPORT_ROWS = 5000;
@@ -45,9 +46,10 @@ const createRequestError = createImportValidationError;
 
 function assertSchemaMatchesDataset() {
   const schemaFieldSet = new Set(EVENT_SCHEMA_FIELDS);
-  const schemaMatches =
-    EVENT_SCHEMA_FIELDS.length === DATASET_HEADERS.length &&
-    DATASET_HEADERS.every((field) => schemaFieldSet.has(field));
+  // The Event schema also contains optional runtime prediction fields that do
+  // not belong to the historical CSV contract. Require every CSV field to
+  // exist, but do not reject the import merely because the schema has extras.
+  const schemaMatches = DATASET_HEADERS.every((field) => schemaFieldSet.has(field));
 
   if (!schemaMatches) {
     const error = new Error(
@@ -227,7 +229,7 @@ async function persistValidatedRow(row, eventService) {
   }
 }
 
-function createDatasetImportController(eventService) {
+function createDatasetImportController(eventService, blockedIPService) {
   async function importDataset(req, res, next) {
     try {
       if (!Buffer.isBuffer(req.body)) {
@@ -294,6 +296,11 @@ function createDatasetImportController(eventService) {
       }
 
       const successCount = results.filter((item) => item.status === "created").length;
+      // Reconcile the internal blocklist even when this import only encounters
+      // duplicate click_id values. Existing Events may predate this sync flow.
+      if (blockedIPService?.syncHistoricalFraudIPs) {
+        await blockedIPService.syncHistoricalFraudIPs();
+      }
       return res.status(200).json({
         receivedCount: dataRows.length,
         successCount,

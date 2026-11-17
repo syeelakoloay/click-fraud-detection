@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAllBlockedIPs } from './api.js';
+import GoogleAdsPage from './components/GoogleAdsPage.jsx';
+import { calculateFraudUpperControlLimit, formatPolylinePoints } from './traffic.Core.mjs';
 import {
   Activity, Bell, Check, ChevronDown, CircleHelp, Filter,
   LayoutDashboard, MousePointer2, Settings, ShieldAlert,
   ShieldCheck, X, Menu, CalendarDays, FileDown, Info,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, ArrowRight, Database, BrainCircuit,
+  BarChart3, MousePointerClick, AlertTriangle, Layers, Shield
 } from 'lucide-react';
 
 const PAGE_SIZE = 10;
@@ -17,7 +20,8 @@ const navigation = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
   { id: 'events', label: 'Click events', Icon: MousePointer2 },
   { id: 'fraud', label: 'Fraud monitoring', Icon: ShieldAlert },
-  { id: 'blocked', label: 'Blocked IPs', Icon: ShieldCheck }
+  { id: 'blocked', label: 'Blocked IPs', Icon: ShieldCheck },
+  { id: 'google-ads', label: 'Google Ads', Icon: Shield }
 ];
 
 const descriptions = {
@@ -29,12 +33,22 @@ const descriptions = {
     'Fraud monitoring memusatkan perhatian pada event yang diberi label fraud. Pengguna dapat meninjau IP, waktu aktivitas, perangkat, dan risk score. Detail event membantu memeriksa indikator seperti frekuensi klik, VPN, atau proxy. Klasifikasi perlu ditinjau sebelum dijadikan dasar tindakan.',
   blocked:
     'Blocked IPs menampilkan alamat IP yang benar-benar tersimpan pada collection blocked_ips melalui Express API. Bagian Risk signals ditampilkan terpisah untuk event dengan indikator VPN atau proxy. Event yang memiliki indikator tersebut tidak otomatis berarti alamat IP sudah diblokir.',
+  'google-ads':
+    'Hubungkan akun Google Ads melalui OAuth untuk membaca kampanye dan metrik invalid clicks. Setelah data dan izin tersedia, sinkronkan label independen campaign-day serta lakukan mitigasi secara manual dengan konfirmasi admin. Mutasi iklan dinonaktifkan secara default.',
   settings:
     'Pengaturan menyediakan informasi konfigurasi dan integrasi ClickGuard. Pengguna dapat memeriksa status koneksi backend. Informasi ini membantu memahami sumber data dan kesiapan integrasi. Konfigurasi lanjutan dapat ditambahkan setelah backend tersedia.'
 };
 
 const numberFormat = value => new Intl.NumberFormat('id-ID').format(value);
 const percent = value => `${value.toFixed(2).replace('.', ',')}%`;
+const configuredCpcText = String(import.meta.env.VITE_DEFAULT_CPC_RUPIAH ?? '').trim();
+const configuredCpc = Number(configuredCpcText);
+const DEFAULT_CPC_RUPIAH = configuredCpcText && Number.isFinite(configuredCpc) && configuredCpc >= 0
+  ? configuredCpc
+  : 2000;
+const rupiahFormat = value => new Intl.NumberFormat('id-ID', {
+  style: 'currency', currency: 'IDR', maximumFractionDigits: 0
+}).format(Number.isFinite(Number(value)) ? Number(value) : 0);
 
 // Leave VITE_API_URL empty during local development so requests stay same-origin
 // and Vite proxies /api to Express. This avoids browser CORS failures on localhost.
@@ -154,15 +168,25 @@ function getEventTimestamp(event) {
 }
 
 function normalizeEvent(event, index) {
-  const rawFraud = event.is_fraudulent ?? event.isFraudulent ?? event.fraud_label;
-  const fraudulent = asBoolean(rawFraud) || String(event.classification ?? '').trim().toLowerCase() === 'fraud';
+  const actualLabel = event.is_fraudulent ?? event.isFraudulent ?? event.fraud_label;
+  const predictedLabel = event.predicted_is_fraudulent ?? event.predictedIsFraudulent;
+  const hasPrediction = predictedLabel !== undefined && predictedLabel !== null && predictedLabel !== '';
+  const hasActualLabel = actualLabel !== undefined && actualLabel !== null && actualLabel !== '';
+  const effectiveLabel = hasPrediction ? predictedLabel : actualLabel;
+  const suppliedClassification = String(event.classification ?? '').trim().toLowerCase();
+  const hasExplicitClassification = ['fraud', 'valid', 'legitimate', 'non-fraud', 'nonfraud'].includes(suppliedClassification);
+  const pendingPrediction = !hasActualLabel && !hasPrediction && !hasExplicitClassification;
+  const fraudulent = !pendingPrediction && (asBoolean(effectiveLabel) || suppliedClassification === 'fraud');
   const rawRisk = event.risk_score ?? event.riskScore;
+  const rawPredictionProbability = event.prediction_probability ?? event.predictionProbability;
   const rawBotScore = event.bot_likelihood_score ?? event.botLikelihoodScore;
   const riskScore = rawRisk !== undefined && rawRisk !== null && rawRisk !== ''
     ? Number(rawRisk)
-    : rawBotScore !== undefined && rawBotScore !== null && rawBotScore !== ''
-      ? (Number(rawBotScore) <= 1 ? Number(rawBotScore) * 100 : Number(rawBotScore))
-      : 0;
+    : rawPredictionProbability !== undefined && rawPredictionProbability !== null && rawPredictionProbability !== ''
+      ? Number(rawPredictionProbability) * 100
+      : rawBotScore !== undefined && rawBotScore !== null && rawBotScore !== ''
+        ? (Number(rawBotScore) <= 1 ? Number(rawBotScore) * 100 : Number(rawBotScore))
+        : 0;
 
   return {
     ...event,
@@ -170,9 +194,10 @@ function normalizeEvent(event, index) {
     ip_address: event.ip_address ?? event.ipAddress ?? event.ip ?? '-',
     device: event.device ?? event.device_type ?? event.deviceType ?? 'Unknown',
     timestamp: getEventTimestamp(event) ?? '-',
-    classification: fraudulent ? 'Fraud' : 'Valid',
-    is_fraudulent: fraudulent,
-    risk_score: Number.isFinite(riskScore) ? Math.max(0, Math.min(100, riskScore)) : 0,
+    classification: pendingPrediction ? 'Belum diprediksi' : fraudulent ? 'Fraud' : 'Valid',
+    classification_source: hasPrediction ? (event.prediction_source === 'ip_list' ? 'Daftar blokir internal' : 'Prediksi ML') : hasActualLabel ? 'Label dataset' : 'Belum tersedia',
+    is_fraudulent: pendingPrediction ? null : fraudulent,
+    risk_score: pendingPrediction && !hasPrediction ? 0 : Number.isFinite(riskScore) ? Math.max(0, Math.min(100, riskScore)) : 0,
     browser: event.browser ?? '-',
     operating_system: event.operating_system ?? event.operatingSystem ?? event.os ?? '-',
     click_duration: event.click_duration ?? event.clickDuration ?? '-',
@@ -271,21 +296,67 @@ function Header({ onMenu, onNotifications, notificationOpen, unread }) {
   );
 }
 
-function Tooltip({ children }) {
-  const [show, setShow] = useState(false);
+function TrafficOverviewInfo() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleEscape = event => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [open]);
+
   return (
-    <span className="tooltip-wrap" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+    <>
       <button
+        type="button"
         className="help-trigger"
-        aria-label="Keterangan grafik"
-        onFocus={() => setShow(true)}
-        onBlur={() => setShow(false)}
-        onClick={() => setShow(value => !value)}
+        aria-label="Buka penjelasan Traffic overview"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
       >
         <CircleHelp size={15} />
       </button>
-      {show && <span role="tooltip" className="tooltip-pop">{children}</span>}
-    </span>
+      {open && (
+        <div className="modal-backdrop traffic-info-backdrop" onClick={() => setOpen(false)}>
+          <section
+            className="detail-modal traffic-info-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="traffic-info-title"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="modal-head">
+              <div><small>PANDUAN GRAFIK</small><h3 id="traffic-info-title">Cara membaca Traffic overview</h3></div>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Tutup penjelasan Traffic overview"><X size={18} /></button>
+            </div>
+            <p className="traffic-info-intro">
+              Grafik menghubungkan jumlah event pada setiap interval waktu. Gunakan garis Valid dan Fraud untuk melihat perubahan traffic, lalu bandingkan jumlah Fraud dengan garis threshold.
+            </p>
+            <div className="traffic-info-legend" aria-label="Legenda garis grafik">
+              <span><i className="traffic-info-valid-line" /> Garis Valid</span>
+              <span><i className="traffic-info-fraud-line" /> Garis Fraud</span>
+              <span><i className="traffic-info-threshold-line" /> Threshold / UCL</span>
+            </div>
+            <div className="traffic-info-section">
+              <h4>Garis trafik biru dan merah</h4>
+              <p><strong>Garis biru</strong> menghubungkan titik Valid dari satu interval ke interval berikutnya. Garis naik berarti jumlah klik Valid meningkat; garis turun berarti jumlahnya menurun.</p>
+              <p><strong>Garis merah</strong> menghubungkan titik Fraud dengan cara yang sama. Garis naik menunjukkan jumlah klik Fraud bertambah, sedangkan garis turun menunjukkan jumlahnya berkurang. Setiap titik tetap mewakili jumlah event pada interval tersebut, bukan satu klik individual.</p>
+            </div>
+            <div className="traffic-info-section">
+              <h4>Garis threshold (UCL Fraud 3σ)</h4>
+              <p>Garis putus-putus amber adalah batas kendali atas (*Upper Control Limit/UCL*) untuk jumlah Fraud. Nilainya dihitung dari baseline fraud rate seluruh event yang tersedia dan disesuaikan dengan total klik pada setiap interval. Karena volume tiap interval dapat berbeda, threshold-nya juga dapat berubah.</p>
+              <p><strong>Titik Fraud di atas garis threshold:</strong> jumlah Fraud melampaui batas variasi statistik yang diharapkan. Interval tersebut perlu ditinjau lebih lanjut, misalnya dengan memeriksa event, IP, perangkat, dan pola klik pada waktu terkait.</p>
+              <p><strong>Titik Fraud di bawah atau tepat pada garis threshold:</strong> jumlah Fraud masih berada dalam batas kendali statistik. Ini bukan jaminan bahwa semua klik aman dan bukan bukti bahwa event tersebut valid.</p>
+              <p><strong>Catatan:</strong> threshold hanya dibandingkan dengan titik Fraud, bukan titik Valid. Threshold tidak menggantikan klasifikasi ML atau keputusan investigasi. Interval tanpa klik tidak memiliki threshold karena tidak ada volume observasi untuk dihitung.</p>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -430,27 +501,51 @@ function normalizeTrafficRows(rows) {
     const validValue = readNumericField(row, [
       'validCount', 'valid_count', 'valid', 'validEvents', 'valid_events', 'validClicks', 'valid_clicks'
     ]);
+    const pendingValue = readNumericField(row, [
+      'unclassifiedCount', 'unclassified_count', 'pendingCount', 'pending_count', 'unclassified', 'pending'
+    ]);
 
     const date = parseTrafficDate(row);
-    const hasAggregateFields = fraudValue !== undefined || totalValue !== undefined || validValue !== undefined;
+    const hasAggregateFields = fraudValue !== undefined || totalValue !== undefined || validValue !== undefined || pendingValue !== undefined;
 
     // Some endpoints return one row per click instead of pre-aggregated counts.
     // Recognize those rows too, so valid/fraud events are not discarded.
     if (!hasAggregateFields) {
       const rawClassification = String(row?.classification ?? row?.status ?? row?.label ?? '').trim().toLowerCase();
-      const fraudFlag = row?.is_fraudulent ?? row?.isFraudulent ?? row?.fraudulent ??
+      const fraudFlag = row?.predicted_is_fraudulent ?? row?.predictedIsFraudulent ?? row?.is_fraudulent ?? row?.isFraudulent ?? row?.fraudulent ??
         (typeof row?.fraud === 'boolean' || (typeof row?.fraud === 'string' && !Number.isFinite(Number(row.fraud))) ? row.fraud : undefined);
-      const hasClassification = ['fraud', 'valid', 'legitimate', 'non-fraud', 'nonfraud'].includes(rawClassification) || fraudFlag !== undefined;
-      if (!date || !hasClassification) return null;
-      const isFraud = asBoolean(fraudFlag) || ['fraud'].includes(rawClassification);
-      return { date, total: 1, fraud: isFraud ? 1 : 0, valid: isFraud ? 0 : 1, order: index };
+      const hasLabel = fraudFlag !== undefined && fraudFlag !== null && fraudFlag !== '';
+      const isFraud = asBoolean(fraudFlag) || rawClassification === 'fraud';
+      const isPending = !hasLabel && !['fraud', 'valid', 'legitimate', 'non-fraud', 'nonfraud'].includes(rawClassification);
+      if (!date) return null;
+      const hasActualBudget = row?.budget !== undefined && row?.budget !== null && String(row.budget).trim() !== '' &&
+        Number.isFinite(Number(row.budget)) && Number(row.budget) >= 0;
+      const eventBudget = hasActualBudget ? Number(row.budget) : DEFAULT_CPC_RUPIAH;
+      return {
+        date, total: 1, fraud: isFraud ? 1 : 0, valid: !isPending && !isFraud ? 1 : 0, pending: isPending ? 1 : 0,
+        validBudget: isFraud || isPending ? 0 : eventBudget,
+        fraudBudget: isFraud ? eventBudget : 0,
+        budgetActualEvents: hasActualBudget ? 1 : 0,
+        budgetFallbackEvents: hasActualBudget ? 0 : 1,
+        order: index
+      };
     }
 
     const fraud = fraudValue ?? 0;
-    const valid = validValue ?? Math.max(0, (totalValue ?? fraud) - fraud);
-    const total = totalValue ?? (fraud + valid);
+    const pending = pendingValue ?? 0;
+    const valid = validValue ?? Math.max(0, (totalValue ?? fraud + pending) - fraud - pending);
+    const total = totalValue ?? (fraud + valid + pending);
+    const validBudget = readNumericField(row, ['validBudget', 'valid_budget', 'validCost', 'valid_cost']);
+    const fraudBudget = readNumericField(row, ['fraudBudget', 'fraud_budget', 'fraudCost', 'fraud_cost']);
 
-    return { date, total, fraud, valid, order: index };
+    return {
+      date, total, fraud, valid, pending,
+      validBudget: validBudget ?? valid * DEFAULT_CPC_RUPIAH,
+      fraudBudget: fraudBudget ?? fraud * DEFAULT_CPC_RUPIAH,
+      budgetActualEvents: readNumericField(row, ['budgetActualEvents', 'budget_actual_events']) ?? 0,
+      budgetFallbackEvents: readNumericField(row, ['budgetFallbackEvents', 'budget_fallback_events']) ?? total,
+      order: index
+    };
   }).filter(row => row && Number.isFinite(row.total) && Number.isFinite(row.fraud) && Number.isFinite(row.valid))
     .sort((a, b) => {
       if (a.date && b.date) return a.date.getTime() - b.date.getTime();
@@ -538,7 +633,12 @@ function createTimeline(period, rows = [], now = new Date()) {
     label,
     total: 0,
     valid: 0,
-    fraud: 0
+    fraud: 0,
+    validBudget: 0,
+    fraudBudget: 0,
+    pending: 0,
+    budgetActualEvents: 0,
+    budgetFallbackEvents: 0
   });
   const { first: dataFirst, last: dataLast } = dateExtent(rows, now);
   // Keep the requested historical window unchanged for hourly, daily, and weekly views.
@@ -631,7 +731,12 @@ function aggregateRowsIntoTimeline(rows, period, now = new Date()) {
     if (index < 0) continue;
     timeline[index].valid += row.valid;
     timeline[index].fraud += row.fraud;
+    timeline[index].pending += Number(row.pending) || 0;
     timeline[index].total += row.total;
+    timeline[index].validBudget += Number(row.validBudget) || 0;
+    timeline[index].fraudBudget += Number(row.fraudBudget) || 0;
+    timeline[index].budgetActualEvents += Number(row.budgetActualEvents) || 0;
+    timeline[index].budgetFallbackEvents += Number(row.budgetFallbackEvents) || 0;
   }
   return timeline;
 }
@@ -662,13 +767,24 @@ function bucketsFromEvents(events, period, now = new Date()) {
   const rows = events.map(event => {
     const date = parseTrafficDate({ timestamp: getEventTimestamp(event) });
     if (!date) return null;
-    const fraudulent = asBoolean(event.is_fraudulent ?? event.isFraudulent) ||
-      String(event.classification ?? '').toLowerCase() === 'fraud';
+    const effectiveLabel = event.predicted_is_fraudulent ?? event.is_fraudulent ?? event.isFraudulent;
+    const hasLabel = effectiveLabel !== undefined && effectiveLabel !== null && effectiveLabel !== '';
+    const classification = String(event.classification ?? '').trim().toLowerCase();
+    const pending = !hasLabel && !['fraud', 'valid', 'legitimate', 'non-fraud', 'nonfraud'].includes(classification);
+    const fraudulent = !pending && (asBoolean(effectiveLabel) || classification === 'fraud');
+    const hasActualBudget = event.budget !== undefined && event.budget !== null && String(event.budget).trim() !== '' &&
+      Number.isFinite(Number(event.budget)) && Number(event.budget) >= 0;
+    const eventBudget = hasActualBudget ? Number(event.budget) : DEFAULT_CPC_RUPIAH;
     return {
       date,
       total: 1,
       fraud: fraudulent ? 1 : 0,
-      valid: fraudulent ? 0 : 1
+      valid: !pending && !fraudulent ? 1 : 0,
+      pending: pending ? 1 : 0,
+      validBudget: fraudulent || pending ? 0 : eventBudget,
+      fraudBudget: fraudulent ? eventBudget : 0,
+      budgetActualEvents: hasActualBudget ? 1 : 0,
+      budgetFallbackEvents: hasActualBudget ? 0 : 1
     };
   }).filter(Boolean);
   return {
@@ -721,6 +837,7 @@ function apiRange(period, now) {
 function TrafficChart({ events, period }) {
   const [apiTraffic, setApiTraffic] = useState({ status: 'loading', rows: [] });
   const [hovered, setHovered] = useState(null);
+  const [selectedPoint, setSelectedPoint] = useState(null);
   const [now, setNow] = useState(() => new Date());
 
   // Update display time regularly. The API is refreshed only when the current hour changes.
@@ -745,6 +862,7 @@ function TrafficChart({ events, period }) {
     // This avoids a flash to an empty chart during period changes.
     setApiTraffic(previous => ({ ...previous, status: 'loading', rows: previous.rows || [] }));
     setHovered(null);
+    setSelectedPoint(null);
     fetch(`${endpoint}?${query.toString()}`, {
       headers: { Accept: 'application/json' },
       signal: controller.signal
@@ -826,14 +944,45 @@ function TrafficChart({ events, period }) {
   const displayBuckets = buckets;
   const hasData = displayBuckets.some(bucket => bucket.total > 0);
 
+  // Baseline fraud rate dihitung dari seluruh event API yang tersedia,
+  // bukan hanya dari bucket yang sedang terlihat pada grafik.
+  const referenceRows = localResult.rows.length ? localResult.rows : apiResult.rows;
+  const referenceTotals = referenceRows.reduce((totals, row) => ({
+    total: totals.total + (Number(row.total) || 0),
+    fraud: totals.fraud + (Number(row.fraud) || 0)
+  }), { total: 0, fraud: 0 });
+  const baselineFraudRate = referenceTotals.total
+    ? referenceTotals.fraud / referenceTotals.total
+    : 0;
+  const thresholdValues = displayBuckets.map(bucket =>
+    calculateFraudUpperControlLimit(bucket.total, baselineFraudRate, 3)
+  );
   const maxValue = Math.max(
     1,
-    ...displayBuckets.flatMap(bucket => [bucket.valid, bucket.fraud])
+    ...displayBuckets.flatMap((bucket, index) => [bucket.valid, bucket.fraud, thresholdValues[index] ?? 0])
   );
   const axisMax = Math.max(1, Math.ceil(maxValue * 1.15));
   // Pusat setiap titik sejajar dengan label periode pada sumbu X.
   const xFor = index => ((index + 0.5) / Math.max(1, displayBuckets.length)) * 100;
   const yFor = value => 96 - (value / axisMax) * 92;
+
+  const thresholdPoints = displayBuckets.map((bucket, index) => ({
+    x: xFor(index), y: yFor(thresholdValues[index] ?? 0),
+    threshold: thresholdValues[index], bucket, bucketIndex: index
+  }));
+  // UCL tidak terdefinisi untuk interval tanpa klik. Putus garis pada bucket
+  // kosong agar grafik tidak memberi kesan ambang statistik berlaku di sana.
+  const thresholdSegments = [];
+  let currentThresholdSegment = [];
+  thresholdPoints.forEach(point => {
+    if (!Number.isFinite(point.threshold)) {
+      if (currentThresholdSegment.length) thresholdSegments.push(currentThresholdSegment);
+      currentThresholdSegment = [];
+    } else {
+      currentThresholdSegment.push(point);
+    }
+  });
+  if (currentThresholdSegment.length) thresholdSegments.push(currentThresholdSegment);
 
   const validPoints = displayBuckets.map((bucket, index) => ({
     x: xFor(index), y: yFor(bucket.valid), bucket, bucketIndex: index,
@@ -843,11 +992,21 @@ function TrafficChart({ events, period }) {
     x: xFor(index), y: yFor(bucket.fraud), bucket, bucketIndex: index,
     series: 'Fraud', count: bucket.fraud
   }));
+  // Separate connected traffic series: every bucket participates, including zero-count intervals.
+  const validPolylinePoints = formatPolylinePoints(validPoints);
+  const fraudPolylinePoints = formatPolylinePoints(fraudPoints);
   const allPoints = [...validPoints, ...fraudPoints].map(point => ({
     ...point,
     total: point.bucket.total,
     validTotal: point.bucket.valid,
     fraudTotal: point.bucket.fraud,
+    pendingTotal: Number(point.bucket.pending) || 0,
+    validBudget: Number(point.bucket.validBudget) || 0,
+    fraudBudget: Number(point.bucket.fraudBudget) || 0,
+    budgetTotal: (Number(point.bucket.validBudget) || 0) + (Number(point.bucket.fraudBudget) || 0),
+    budgetActualEvents: Number(point.bucket.budgetActualEvents) || 0,
+    budgetFallbackEvents: Number(point.bucket.budgetFallbackEvents) || 0,
+    threshold: thresholdValues[point.bucketIndex],
     label: period === 'hour'
       ? `${point.bucket.label} · ${dayLabel(point.bucket.date)}`
       : period === 'week' && point.bucket.endDate
@@ -857,29 +1016,6 @@ function TrafficChart({ events, period }) {
     radius: Math.min(7, 3.3 + Math.sqrt(point.count) * 0.2),
     isSynthetic: false
   }));
-  // Least-squares regression menghasilkan satu garis lurus panjang yang
-  // mengikuti kecenderungan rata-rata sebaran, bukan zig-zag antar titik.
-  const trendLine = points => {
-    if (points.length < 2) return null;
-    const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
-    const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
-    const numerator = points.reduce(
-      (sum, point) => sum + (point.x - meanX) * (point.y - meanY), 0
-    );
-    const denominator = points.reduce(
-      (sum, point) => sum + (point.x - meanX) ** 2, 0
-    );
-    const slope = denominator ? numerator / denominator : 0;
-    const intercept = meanY - slope * meanX;
-    return {
-      x1: 0,
-      y1: Math.max(4, Math.min(96, slope * 0 + intercept)),
-      x2: 100,
-      y2: Math.max(4, Math.min(96, slope * 100 + intercept))
-    };
-  };
-  const validTrend = trendLine(validPoints);
-  const fraudTrend = trendLine(fraudPoints);
 
   let sourceText;
   if (useLocalDatedData) sourceText = 'Sumber: seluruh event Express API · timestamp aktual';
@@ -891,6 +1027,58 @@ function TrafficChart({ events, period }) {
   const chartLabel = period === 'hour' ? 'Jam' : period === 'day' ? 'Hari' : period === 'week' ? 'Minggu' : period === 'month' ? 'Bulan' : 'Tahun';
   // Every interval receives a label so dates/months never appear to be skipped.
   const showEvery = 1;
+
+  const selectedIntervalEvents = useMemo(() => {
+    if (!selectedPoint) return [];
+    return events.filter(event => {
+      const date = parseTrafficDate({ timestamp: getEventTimestamp(event) });
+      return date && getBucketIndex(date, displayBuckets, period) === selectedPoint.bucketIndex;
+    });
+  }, [events, selectedPoint, displayBuckets, period]);
+
+  const selectedIPSummary = useMemo(() => {
+    const byIP = new Map();
+    selectedIntervalEvents.forEach(event => {
+      const ip = String(event.ip_address ?? event.ipAddress ?? '').trim();
+      if (!ip) return;
+      const entry = byIP.get(ip) || { ip, total: 0, fraud: 0, maxFrequency: 0, suspiciousSignals: 0 };
+      entry.total += 1;
+      const fraud = asBoolean(event.predicted_is_fraudulent ?? event.is_fraudulent ?? event.isFraudulent) ||
+        String(event.classification ?? '').toLowerCase() === 'fraud';
+      if (fraud) entry.fraud += 1;
+      entry.maxFrequency = Math.max(entry.maxFrequency, Number(event.click_frequency) || 0);
+      if (String(event.device_ip_reputation ?? '').toLowerCase() !== 'good' ||
+          asBoolean(event.VPN_usage ?? event.vpn_usage) || asBoolean(event.proxy_usage)) {
+        entry.suspiciousSignals += 1;
+      }
+      byIP.set(ip, entry);
+    });
+    return [...byIP.values()]
+      .sort((a, b) => b.fraud - a.fraud || b.suspiciousSignals - a.suspiciousSignals || b.total - a.total || b.maxFrequency - a.maxFrequency)
+      .slice(0, 3);
+  }, [selectedIntervalEvents]);
+
+  const selectedFraudVsUcl = selectedPoint && Number.isFinite(selectedPoint.threshold)
+    ? selectedPoint.fraudTotal > selectedPoint.threshold ? 'above'
+      : selectedPoint.fraudTotal === selectedPoint.threshold ? 'at'
+        : selectedPoint.threshold > 0 && selectedPoint.fraudTotal >= selectedPoint.threshold * 0.8 ? 'near'
+        : 'below'
+    : 'unavailable';
+  const selectedFraudUclRatio = selectedPoint && Number.isFinite(selectedPoint.threshold) && selectedPoint.threshold > 0
+    ? selectedPoint.fraudTotal / selectedPoint.threshold * 100
+    : null;
+  // Tampilkan persentase dengan pembulatan ke bawah agar nilai yang masih
+  // sedikit di bawah UCL tidak terlihat sebagai 100,00% akibat pembulatan.
+  const selectedFraudUclGap = selectedPoint && Number.isFinite(selectedPoint.threshold)
+    ? Math.max(0, selectedPoint.threshold - selectedPoint.fraudTotal)
+    : null;
+  const selectedFraudUclRemainingRatio = selectedFraudUclRatio === null
+    ? null
+    : Math.max(0, 100 - selectedFraudUclRatio);
+  const selectedIPText = selectedIPSummary.filter(item => item.fraud > 0).length
+    ? selectedIPSummary.filter(item => item.fraud > 0)
+      .map(item => `${item.ip} (${item.fraud} fraud, ${item.total} event)`).join('; ')
+    : '';
 
   const apiStatusLabel = useLocalDatedData
     ? `Grafik dihitung dari ${localResult.rows.length.toLocaleString('id-ID')} event bertanggal aktual dari Express API`
@@ -907,7 +1095,7 @@ function TrafficChart({ events, period }) {
       <div className={`api-status api-status-${apiTraffic.status}`} role="status" aria-live="polite">
         <span className="api-status-dot" />{apiStatusLabel}
       </div>
-      <div className="scatter-chart" role="group" aria-label={`Grafik garis traffic valid dan fraud per ${chartLabel.toLowerCase()}`}>
+      <div className="scatter-chart" role="group" aria-label={`Grafik traffic valid dan fraud per ${chartLabel.toLowerCase()} dengan batas kendali atas fraud`}>
         <div className="scatter-y-axis" aria-hidden="true">
           {[3, 2, 1, 0].map(level => <span key={level}>{Math.round(axisMax * level / 3)}</span>)}
         </div>
@@ -924,38 +1112,38 @@ function TrafficChart({ events, period }) {
             {[0, 1, 2, 3].map(level => (
               <div key={level} className="scatter-gridline" style={{ top: `${4 + (level / 3) * 92}%` }} />
             ))}
-            {hasData && displayBuckets.length >= 2 && (
+            {hasData && (validPoints.length > 1 || fraudPoints.length > 1 || thresholdSegments.some(segment => segment.length >= 2)) && (
               <svg
                 className="scatter-series-lines"
                 style={{ transition: 'opacity 700ms ease-in-out' }}
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
                 role="img"
-                aria-label="Garis tren linear biru untuk Valid dan merah untuk Fraud"
+                aria-label="Garis biru menghubungkan jumlah Valid, garis merah menghubungkan jumlah Fraud, dan garis putus-putus amber menunjukkan threshold UCL Fraud"
               >
-                {validTrend && (
-                  <line
-                    className="series-line-valid"
-                    x1={validTrend.x1} y1={validTrend.y1}
-                    x2={validTrend.x2} y2={validTrend.y2}
-                  />
+                {validPoints.length > 1 && (
+                  <polyline className="series-line-valid" points={validPolylinePoints} />
                 )}
-                {fraudTrend && (
-                  <line
-                    className="series-line-fraud"
-                    x1={fraudTrend.x1} y1={fraudTrend.y1}
-                    x2={fraudTrend.x2} y2={fraudTrend.y2}
-                  />
+                {fraudPoints.length > 1 && (
+                  <polyline className="series-line-fraud" points={fraudPolylinePoints} />
                 )}
+                {thresholdSegments.filter(segment => segment.length >= 2).map((segment, index) => (
+                  <polyline
+                    key={`threshold-segment-${index}`}
+                    className="series-line-threshold"
+                    points={formatPolylinePoints(segment)}
+                  />
+                ))}
               </svg>
             )}
             {hasData && allPoints.map(point => {
-              const tooltipLabel = `${point.label} — ${point.series}: ${numberFormat(point.count)} event; total ${numberFormat(point.total)}; valid ${numberFormat(point.validTotal)}; fraud ${numberFormat(point.fraudTotal)}; fraud rate ${percent(point.fraudRate)}.`;
+              const tooltipLabel = `${point.label} — ${point.series}: ${numberFormat(point.count)} event; total ${numberFormat(point.total)}; valid ${numberFormat(point.validTotal)}; fraud ${numberFormat(point.fraudTotal)}; belum diprediksi ${numberFormat(point.pendingTotal)}; fraud rate ${percent(point.fraudRate)}.`;
               return (
                 <button
                   key={`${point.bucketIndex}-${point.series}`}
                   type="button"
-                  className={`scatter-dot ${point.series === 'Valid' ? 'dot-valid' : 'dot-fraud'}`}
+                  className={`scatter-dot ${point.series === 'Valid' ? 'dot-valid' : 'dot-fraud'}${selectedPoint?.bucketIndex === point.bucketIndex && selectedPoint?.series === point.series ? ' is-selected' : ''}`}
+                  aria-pressed={selectedPoint?.bucketIndex === point.bucketIndex && selectedPoint?.series === point.series}
                   style={{
                     left: `${point.x}%`,
                     top: `${point.y}%`,
@@ -968,7 +1156,7 @@ function TrafficChart({ events, period }) {
                   onMouseEnter={() => setHovered(point)}
                   onFocus={() => setHovered(point)}
                   onBlur={() => setHovered(null)}
-                  onClick={() => setHovered(point)}
+                  onClick={() => { setSelectedPoint(point); setHovered(point); }}
                 />
               );
             })}
@@ -986,7 +1174,18 @@ function TrafficChart({ events, period }) {
                 <span>Event {hovered.series.toLowerCase()}: <b>{numberFormat(hovered.count)}</b></span>
                 <span>Total traffic interval: <b>{numberFormat(hovered.total)}</b></span>
                 <span>Valid: {numberFormat(hovered.validTotal)} · Fraud: {numberFormat(hovered.fraudTotal)}</span>
+                {hovered.pendingTotal > 0 && <span>Belum diprediksi: {numberFormat(hovered.pendingTotal)}</span>}
                 <span>Fraud rate: {percent(hovered.fraudRate)}</span>
+                {hovered.series === 'Fraud' && Number.isFinite(hovered.threshold) && (
+                  <>
+                    <span>Batas kendali atas (UCL 3σ): <b>{numberFormat(hovered.threshold)}</b> event fraud</span>
+                    <span className={hovered.count > hovered.threshold ? 'threshold-status threshold-status-high' : 'threshold-status'}>
+                      {hovered.count > hovered.threshold
+                        ? 'Di atas batas kendali · perlu ditinjau'
+                        : 'Di bawah/tepat pada batas kendali'}
+                    </span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1021,9 +1220,126 @@ function TrafficChart({ events, period }) {
         </div>
       )}
       <div className="scatter-axis-caption">
-        Sumbu X: {chartLabel.toLowerCase()} · Sumbu Y: jumlah event. Garis biru: tren Valid; garis merah: tren Fraud. Gulir area grafik ke kanan atau kiri untuk melihat periode/tanggal lain. Periode tanpa record pada sumber data ditampilkan 0.
+        Sumbu X: {chartLabel.toLowerCase()} · Sumbu Y: jumlah event. Garis biru menghubungkan traffic Valid; garis merah menghubungkan traffic Fraud; titik menandai jumlah event tiap interval; garis putus-putus amber menunjukkan batas kendali atas Fraud (UCL 3σ). Bandingkan threshold hanya dengan titik Fraud. Gulir area grafik ke kanan atau kiri untuk melihat periode/tanggal lain. Periode tanpa record ditampilkan 0.
       </div>
-      <div
+      {selectedPoint ? (
+        <section className="selected-traffic-insight" aria-labelledby="selected-traffic-insight-title" aria-live="polite">
+          <div className="selected-insight-header">
+            <div>
+              <span className="selected-insight-eyebrow">INTERVAL TERPILIH</span>
+              <h3 id="selected-traffic-insight-title">{selectedPoint.label} · Titik {selectedPoint.series}</h3>
+              <p>Rincian mengikuti titik dan interval yang Anda klik pada grafik.</p>
+            </div>
+            <span className={`selected-insight-status ${selectedFraudVsUcl === 'above' ? 'status-danger' : selectedFraudVsUcl === 'near' || selectedFraudVsUcl === 'at' || selectedFraudVsUcl === 'unavailable' ? 'status-warning' : 'status-normal'}`}>
+              {selectedFraudVsUcl === 'above' ? 'Fraud melewati UCL'
+                : selectedFraudVsUcl === 'at' ? 'Fraud tepat pada UCL'
+                  : selectedFraudVsUcl === 'near' ? 'Fraud mendekati UCL'
+                  : selectedFraudVsUcl === 'below' ? 'Fraud di bawah UCL' : 'UCL tidak tersedia'}
+            </span>
+          </div>
+
+          <div className="selected-insight-section">
+            <h4>Arti</h4>
+            {selectedPoint.total === 0 ? (
+              <p>Interval ini tidak memiliki event, jadi tidak ada aktivitas klik yang dapat dinilai. Karena tidak ada traffic, UCL untuk interval ini juga tidak tersedia. Kondisi ini bukan berarti traffic aman; artinya belum ada data pada interval tersebut untuk diperiksa.</p>
+            ) : (
+              <p>
+                {selectedPoint.series === 'Fraud'
+                  ? <>Titik merah yang dipilih mewakili <strong>{numberFormat(selectedPoint.fraudTotal)} event berlabel Fraud</strong>. Titik merah inilah yang dibandingkan langsung dengan garis UCL.</>
+                  : <>Titik biru yang dipilih mewakili <strong>{numberFormat(selectedPoint.validTotal)} event berlabel Valid</strong>. <strong>Posisi titik Valid terhadap garis UCL—baik di atas maupun di bawah—tidak dibandingkan langsung dengan batas tersebut</strong>, karena UCL hanya berlaku untuk jumlah Fraud. Namun, jumlah Valid tetap menjadi bagian dari total traffic interval yang digunakan untuk menghitung nilai UCL. Jadi, status UCL ditentukan dengan membandingkan jumlah Fraud (titik merah) dengan nilai UCL pada interval yang sama, meskipun yang dipilih adalah titik Valid.</>}
+                {' '}Pada interval ini tercatat <strong>{numberFormat(selectedPoint.total)} total traffic event</strong> (seluruh klik yang terekam), terdiri dari <strong>{numberFormat(selectedPoint.validTotal)} Valid</strong>, <strong>{numberFormat(selectedPoint.fraudTotal)} Fraud</strong>, dan <strong>{numberFormat(selectedPoint.pendingTotal)} belum diprediksi</strong>. Event yang belum diprediksi tetap masuk total traffic, tetapi tidak dihitung sebagai Valid maupun Fraud. <strong>Fraud Rate {percent(selectedPoint.fraudRate)}</strong> berarti sebesar itu bagian dari seluruh event pada interval ini yang berlabel Fraud.
+                {' '}{selectedFraudVsUcl === 'above' ? (
+                  <>Jumlah Fraud sudah <strong>melewati UCL 3-Sigma sebesar {numberFormat(selectedPoint.threshold)} event</strong>, dengan selisih sekitar <strong>{numberFormat(selectedPoint.fraudTotal - selectedPoint.threshold)} event di atas batas</strong>. Ini merupakan sinyal kuat bahwa jumlah Fraud pada interval tersebut berada di luar batas kendali statistik dan perlu dianggap berisiko tinggi untuk segera diperiksa. Kondisi ini bukan sekadar mendekati batas, tetapi sudah melampauinya.</>
+                ) : selectedFraudVsUcl === 'at' ? (
+                  <>Jumlah Fraud tepat sama dengan UCL, yaitu <strong>{numberFormat(selectedPoint.threshold)} event</strong>. Artinya, jumlah Fraud sudah mencapai batas kendali atas pada grafik Traffic Overview, tetapi belum melampauinya. Kondisi ini perlu dianggap <strong>waspada tinggi</strong> karena tidak ada lagi jarak tersisa sebelum batas terlampaui. Ini berbeda dari kondisi di atas UCL, yang berarti batas sudah dilewati.</>
+                ) : selectedFraudVsUcl === 'near' ? selectedFraudUclRatio >= 90 ? (
+                  <>Jumlah Fraud pada interval ini adalah <strong>{numberFormat(selectedPoint.fraudTotal)} event</strong>, sedangkan UCL (garis putus-putus amber pada grafik Traffic Overview) adalah <strong>{numberFormat(selectedPoint.threshold)} event</strong>. Artinya, jumlah Fraud <strong>masih berada di bawah UCL</strong>: telah mencapai sekitar <strong>{percent(Math.floor(selectedFraudUclRatio * 100) / 100)} dari batas</strong> dan hanya tersisa <strong>{numberFormat(selectedFraudUclGap)} event ({percent(selectedFraudUclRemainingRatio)})</strong> sebelum mencapai UCL. Kondisi ini <strong>sangat dekat dengan batas dan masuk kategori waspada tinggi</strong>, tetapi belum melewatinya. Kenaikan kecil saja dapat membuat jumlah Fraud melampaui UCL. Persentase ini menunjukkan posisi jumlah Fraud terhadap batas kendali, bukan peluang terjadinya fraud.</>
+                ) : (
+                  <>Jumlah Fraud pada interval ini adalah <strong>{numberFormat(selectedPoint.fraudTotal)} event</strong>, sementara UCL (garis putus-putus amber pada grafik Traffic Overview) adalah <strong>{numberFormat(selectedPoint.threshold)} event</strong>. Jumlah Fraud masih <strong>{numberFormat(selectedFraudUclGap)} event di bawah UCL</strong> dan telah mencapai sekitar <strong>{percent(Math.floor(selectedFraudUclRatio * 100) / 100)} dari batas</strong>. Posisi ini berada pada rentang 80% hingga kurang dari 90%, sehingga <strong>belum melewati UCL tetapi sudah masuk zona waspada</strong>. Jika jumlah Fraud terus meningkat, batas dapat terlampaui; karena itu pemantauan perlu diperketat. Persentase ini menunjukkan posisi jumlah Fraud terhadap batas, bukan peluang terjadinya fraud.</>
+                ) : selectedFraudVsUcl === 'below' && selectedFraudUclRatio !== null ? (
+                  <>Pada interval ini, jumlah Fraud adalah <strong>{numberFormat(selectedPoint.fraudTotal)} event</strong>, sedangkan garis putus-putus amber pada grafik Traffic Overview menunjukkan UCL sebesar <strong>{numberFormat(selectedPoint.threshold)} event</strong>. Jumlah Fraud masih <strong>{numberFormat(selectedFraudUclGap)} event di bawah UCL</strong> (sekitar {percent(Math.floor(selectedFraudUclRatio * 100) / 100)} dari batas). Artinya, <strong>jumlah Fraud pada interval ini masih cukup jauh dari batas UCL</strong> karena belum mencapai 80% dari batas tersebut. Penilaian ini hanya berlaku untuk jumlah Fraud; bukan untuk jumlah atau posisi titik Valid, dan bukan jaminan bahwa seluruh traffic aman. Event berlabel Fraud tetap perlu ditinjau.</>
+                ) : selectedFraudVsUcl === 'below' ? (
+                  <>Tidak ada event Fraud pada interval ini dan nilai UCL yang tersedia adalah 0 event, sehingga persentase jarak terhadap UCL tidak dapat dihitung. Tidak terlihat lonjakan Fraud pada interval ini, tetapi hasil tersebut tetap hanya menggambarkan data yang tercatat pada interval ini.</>
+                ) : (
+                  <>UCL tidak tersedia untuk interval ini, sehingga belum dapat ditentukan apakah jumlah Fraud mendekati atau melewati batas kendali. Label Valid/Fraud tetap menggambarkan hasil klasifikasi pada data, tetapi kedekatan terhadap UCL belum bisa dinilai.</>
+                )}
+              </p>
+            )}
+            <div className="selected-insight-stats">
+              <div><span>Total Traffic Interval</span><strong>{numberFormat(selectedPoint.total)}</strong></div>
+              <div><span>Valid Event</span><strong>{numberFormat(selectedPoint.validTotal)}</strong></div>
+              <div><span>Fraud Event</span><strong>{numberFormat(selectedPoint.fraudTotal)}</strong></div>
+              <div><span>Belum Diprediksi</span><strong>{numberFormat(selectedPoint.pendingTotal)}</strong></div>
+              <div><span>Fraud Rate</span><strong>{percent(selectedPoint.fraudRate)}</strong></div>
+            </div>
+            <p className="selected-insight-footnote">
+              Total Traffic Interval adalah seluruh event pada waktu yang dipilih; Valid Event, Fraud Event, dan Belum Diprediksi memisahkan seluruh event menurut ketersediaan klasifikasi; Fraud Rate adalah persentase event Fraud terhadap total traffic. {' '}
+              {Number.isFinite(selectedPoint.threshold)
+                ? `UCL Fraud 3-sigma: ${numberFormat(selectedPoint.threshold)} event. Jumlah Fraud pada interval ini berada pada ${selectedFraudUclRatio === null ? 'posisi yang tidak dapat dinyatakan sebagai persentase karena UCL bernilai 0' : percent(Math.floor(selectedFraudUclRatio * 100) / 100) + ' dari UCL'}.`
+                : 'UCL tidak dihitung karena interval tidak memiliki traffic yang dapat diamati.'}
+              {' '}Status Valid/Fraud mengikuti label dataset dan bukan verifikasi independen atas setiap klik.
+            </p>
+          </div>
+
+          <div className="selected-insight-section">
+            <h4>Rekomendasi</h4>
+            {selectedPoint.total === 0 ? (
+              <p>Belum ada event yang perlu diperiksa atau diblokir pada interval ini. Lanjutkan pemantauan seperti biasa dan periksa kembali setelah traffic baru tercatat.</p>
+            ) : selectedFraudVsUcl === 'above' ? (
+              <p>
+                Karena jumlah Fraud sudah melewati UCL, prioritaskan pemeriksaan pada tanggal dan jam interval ini. Telusuri log dan kelompokkan event berdasarkan IP Address untuk menemukan sumber lonjakan. {selectedIPText
+                  ? `Mulai periksa IP yang tercatat pada interval ini: ${selectedIPText}. `
+                  : 'Jika alamat IP tersedia pada log sumber, periksa IP yang melakukan klik berulang atau dalam frekuensi tidak wajar. '}
+                Periksa apakah klik terjadi terlalu rapat, berasal dari IP atau perangkat yang sama secara berulang, memiliki reputasi IP buruk, atau menggunakan VPN/proxy. Catat bukti dan blokir IP hanya setelah pola mencurigakan terkonfirmasi; melewati UCL merupakan tanda untuk investigasi, bukan alasan tunggal untuk memblokir.
+              </p>
+            ) : selectedFraudVsUcl === 'at' ? (
+              <p>
+                Jumlah Fraud tepat mencapai UCL, sehingga batas kendali atas sudah tersentuh walaupun belum terlampaui. Prioritaskan pemeriksaan pada interval ini, bandingkan jumlah Fraud dengan interval sebelumnya, dan telusuri sumber traffic berdasarkan IP Address. {selectedIPText
+                  ? `Mulai periksa IP yang tercatat pada interval ini: ${selectedIPText}. `
+                  : 'Jika alamat IP tersedia pada log sumber, periksa IP yang melakukan klik berulang atau dalam frekuensi tidak wajar. '}
+                Periksa frekuensi klik, reputasi IP, serta penggunaan VPN/proxy. UCL merupakan sinyal untuk melakukan investigasi, bukan alasan tunggal untuk memblokir IP; lakukan pemblokiran setelah pola mencurigakan terkonfirmasi.
+              </p>
+            ) : selectedFraudVsUcl === 'near' ? (
+              <p>
+                Jumlah Fraud belum melewati UCL, tetapi sudah berada di zona waspada sehingga pemantauan perlu diperketat pada interval berikutnya. Bandingkan jumlah Fraud dengan interval sebelumnya dan periksa sumber traffic yang mulai meningkat. {selectedIPText
+                  ? `Periksa IP yang muncul pada interval ini: ${selectedIPText}. `
+                  : 'Kelompokkan event berdasarkan IP Address untuk melihat apakah ada alamat yang mulai menghasilkan klik berulang. '}
+                Perhatikan frekuensi klik, jarak waktu antar-klik, reputasi IP, serta penggunaan VPN/proxy. Jika pola yang sama terus berulang atau jumlah Fraud semakin mendekati UCL, lanjutkan investigasi lebih mendalam. Jangan memblokir IP hanya karena titik mendekati UCL; lakukan pemblokiran setelah ada bukti yang cukup.
+              </p>
+            ) : selectedFraudVsUcl === 'below' ? (
+              <p>
+                Jumlah Fraud masih relatif jauh dari UCL, sehingga belum terlihat lonjakan yang perlu ditangani sebagai kondisi darurat. Pertahankan pengaturan kampanye dan pemantauan normal, lalu tinjau sampel event Fraud serta periksa apakah ada IP yang berulang atau menghasilkan klik tidak wajar. Jika jumlah Fraud terus meningkat dan mulai mendekati 80% dari UCL pada interval berikutnya, tingkatkan pemantauan dan periksa sumber traffic lebih awal. Belum diperlukan pemblokiran massal tanpa bukti aktivitas mencurigakan.
+              </p>
+            ) : (
+              <p>
+                UCL belum tersedia untuk interval ini, jadi tingkat kedekatan traffic terhadap batas kendali belum dapat ditentukan. Jangan langsung menganggap kondisi ini aman atau berbahaya berdasarkan UCL. Periksa log event berlabel Fraud, telusuri IP yang berulang jika informasinya tersedia, dan lanjutkan pemantauan sampai data yang cukup tersedia untuk menghitung batas kendali.
+              </p>
+            )}
+          </div>
+
+          <div className="selected-insight-section">
+            <h4>Anggaran</h4>
+            <div className="selected-budget-grid">
+              <div className="budget-card-valid"><span>Estimasi Biaya Valid</span><strong>{rupiahFormat(selectedPoint.validBudget)}</strong></div>
+              <div className="budget-card-fraud"><span>Estimasi Biaya Fraud</span><strong>{rupiahFormat(selectedPoint.fraudBudget)}</strong></div>
+              <div><span>Total Estimasi Biaya</span><strong>{rupiahFormat(selectedPoint.budgetTotal)}</strong></div>
+              <div><span>Potensi Pemborosan</span><strong>{percent(selectedPoint.budgetTotal > 0 ? selectedPoint.fraudBudget / selectedPoint.budgetTotal * 100 : 0)}</strong></div>
+            </div>
+            <p className="selected-budget-analysis">
+              <strong>Analisis Anggaran:</strong> Dari total estimasi biaya {rupiahFormat(selectedPoint.budgetTotal)}, sekitar {rupiahFormat(selectedPoint.validBudget)} digunakan untuk traffic berlabel Valid yang berpotensi memberi nilai bagi kampanye, sedangkan {rupiahFormat(selectedPoint.fraudBudget)} berpotensi terbuang akibat traffic berlabel Fraud. Potensi pemborosan anggaran pada interval ini mencapai {percent(selectedPoint.budgetTotal > 0 ? selectedPoint.fraudBudget / selectedPoint.budgetTotal * 100 : 0)}.
+            </p>
+            <p className="selected-insight-footnote">
+              {selectedPoint.total === 0
+                ? 'Tidak ada event pada interval ini, sehingga tidak ada biaya yang diestimasi.'
+                : selectedPoint.budgetActualEvents > 0
+                  ? `${numberFormat(selectedPoint.budgetActualEvents)} event memakai nilai pada kolom budget; ${numberFormat(selectedPoint.budgetFallbackEvents)} event memakai fallback CPC ${rupiahFormat(DEFAULT_CPC_RUPIAH)} (atur melalui VITE_DEFAULT_CPC_RUPIAH).`
+                  : `Tidak ada nilai budget pada data interval ini; estimasi memakai fallback CPC ${rupiahFormat(DEFAULT_CPC_RUPIAH)} per event (atur melalui VITE_DEFAULT_CPC_RUPIAH).`}
+              {' '}Kolom budget pada dataset yang disertakan adalah data dummy per event, bukan tagihan aktual platform iklan. Biaya traffic Valid bukan profit/keuntungan bersih, dan biaya Fraud adalah potensi pemborosan yang belum menjadi kerugian aktual terverifikasi.
+            </p>
+          </div>
+        </section>
+      ) : (
+        <div
           className="hour-date-explanation"
           role="note"
           style={{ marginTop: '8px', padding: '10px 12px', borderRadius: '10px', background: '#f4f7ff', border: '1px solid #dce6ff', color: '#40516b', fontSize: '13px', lineHeight: 1.55 }}
@@ -1031,6 +1347,7 @@ function TrafficChart({ events, period }) {
           <strong style={{ display: 'block', fontSize: '13px', marginBottom: '2px' }}>Cara membaca tanggal dan jam</strong>
           Rentang Per hari, Per minggu, Per bulan, dan Per tahun mengikuti timestamp event API paling awal sampai paling akhir, bukan rentang tanggal yang ditulis tetap di kode. Pada CSV acuan yang diperiksa, data dimulai 19 Februari 2024 dan berakhir 18 Februari 2025; jika data API berubah, batas grafik mengikuti timestamp API yang diterima. Gunakan scroll horizontal untuk melihat seluruh rentang. Minggu dimulai pada hari Senin, sedangkan bulan dan tahun mengikuti kalender. Jumlah Valid/Fraud hanya berasal dari event API yang masuk ke setiap bucket. Tanggal tanpa event bernilai 0—grafik tidak membuat event palsu. Per jam menampilkan 24 bucket per jam; jika data berasal dari dataset historis, 24 jam tersebut berakhir pada jam event terbaru, sedangkan data terkini berakhir pada jam sekarang.
         </div>
+      )}
 
       <section
         className="traffic-calculation-panel"
@@ -1066,27 +1383,30 @@ function TrafficChart({ events, period }) {
             Fraud rate = (Fraud ÷ Total) × 100%
           </code>
         </div>
-        <p style={{ margin: '6px 0' }}><strong style={{ color: '#40516b' }}>Valid:</strong> <code>is_fraudulent = 0</code>.</p>
-        <p style={{ margin: '6px 0' }}><strong style={{ color: '#40516b' }}>Fraud:</strong> <code>is_fraudulent = 1</code>.</p>
+        <p style={{ margin: '6px 0' }}><strong style={{ color: '#40516b' }}>Valid:</strong> Nilai 0 pada kolom <code>is_fraudulent</code> berarti event diberi label Valid oleh dataset.</p>
+        <p style={{ margin: '6px 0' }}><strong style={{ color: '#40516b' }}>Fraud:</strong> Nilai 1 pada kolom <code>is_fraudulent</code> berarti event diberi label Fraud oleh dataset.</p>
         <p style={{ margin: '8px 0' }}>
-          Grafik saat ini menggunakan agregasi <strong>{period === 'hour' ? 'per jam' : period === 'day' ? 'per hari' : period === 'week' ? 'per minggu' : period === 'month' ? 'per bulan' : 'per tahun'}</strong>.
-          Setiap bucket menghitung jumlah event Valid dan Fraud pada rentang waktu tersebut. Saat periode diganti, bucket dan label waktunya ikut berubah; rumus kategorinya tetap sama.
+          Grafik mengelompokkan event <strong>{period === 'hour' ? 'per jam' : period === 'day' ? 'per hari' : period === 'week' ? 'per minggu' : period === 'month' ? 'per bulan' : 'per tahun'}</strong>.
+          Setiap kelompok waktu (bucket) menghitung jumlah event Valid dan Fraud yang tercatat di dalamnya. Saat periode diubah, rentang kelompok dan label waktunya ikut berubah, tetapi rumus penghitungannya tetap sama.
         </p>
         <p style={{ margin: '8px 0' }}>
-          Kategori mengikuti label dataset. Tidak dibuat subkategori atau ambang tambahan karena dataset tidak menyediakan label dan bukti untuk menentukan klasifikasi tersebut.
+          Kategori diambil langsung dari label pada dataset. Sistem tidak membuat kategori tambahan karena data yang tersedia belum menyediakan label atau bukti yang cukup untuk menentukan kategori lain.
         </p>
         <p style={{ margin: '8px 0' }}>
-          Garis tren solid (biru untuk Valid dan merah untuk Fraud) dihitung dengan regresi linear pada jumlah event per periode dan hanya digunakan untuk membaca kecenderungan naik/turun pada rentang data yang ditampilkan, bukan untuk memprediksi periode berikutnya.
-          Garis horizontal 0 event hanya batas bawah sumbu, bukan ambang keputusan fraud.
+          Garis biru menunjukkan jumlah event Valid di setiap kelompok waktu, sedangkan garis merah menunjukkan jumlah event Fraud. Garis yang naik berarti jumlahnya bertambah; garis yang turun berarti jumlahnya berkurang. Garis putus-putus berwarna amber menunjukkan <strong>batas kendali atas (Upper Control Limit/UCL) 3-sigma</strong>. Sederhananya, UCL menjadi patokan untuk melihat apakah jumlah Fraud pada suatu kelompok waktu lebih tinggi dari pola yang diperkirakan. Nilainya dihitung dari persentase Fraud pada seluruh event yang sedang dimuat (baseline fraud rate) dan total klik pada kelompok waktu tersebut. Karena total klik tiap kelompok bisa berbeda, nilai UCL juga dapat berbeda. Jadi, kelompok dengan traffic besar tidak dibandingkan dengan satu batas jumlah yang sama seperti kelompok dengan traffic kecil.
+        </p>
+        <p style={{ margin: '8px 0' }}>
+          <strong>Titik Fraud di atas UCL:</strong> jumlah Fraud pada kelompok waktu tersebut sudah melewati batas yang diperkirakan dan perlu diperiksa lebih lanjut. <strong>Titik Fraud di bawah atau tepat pada UCL:</strong> jumlahnya masih berada dalam batas kendali statistik. Namun, hal ini tidak menjamin semua klik aman. UCL hanya membantu pemantauan, bukan pengganti hasil klasifikasi ML atau keputusan untuk memblokir IP. Titik Valid tidak dibandingkan dengan UCL karena garis tersebut khusus untuk jumlah Fraud.
         </p>
         <p style={{ margin: '12px 0 0', color: '#7a8ba5', fontSize: '12px' }}>
-          Rentang grafik mengikuti data yang tersedia dari sumber. Nilai pada setiap titik adalah jumlah event, bukan persentase atau risk score per klik. Data waktu ditampilkan mengikuti label pada sumbu X.
+          Persentase Fraud dasar yang digunakan untuk menghitung UCL diambil dari seluruh event yang berhasil dimuat dari API, bukan dari angka batas yang ditetapkan manual. Kelompok waktu tanpa klik tidak memiliki UCL karena tidak ada data yang dapat dihitung. Untuk penggunaan jangka panjang, persentase dasar ini sebaiknya dihitung dari periode historis yang stabil dan ditinjau secara berkala. Titik pada grafik menunjukkan jumlah event, bukan persentase atau risk score untuk setiap klik.
         </p>
       </section>
 
       <div className="legend">
         <span><i className="legend-blue" />Valid</span>
         <span><i className="legend-red" />Fraud</span>
+        <span><i className="legend-threshold" />UCL Fraud 3σ · baseline {percent(baselineFraudRate * 100)}</span>
         <small className="chart-source">{sourceText}</small>
       </div>
     </>
@@ -1102,14 +1422,15 @@ function BlockedIPTable({ ips, status, error, page, setPage }) {
     <>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>IP ADDRESS</th></tr></thead>
+          <thead><tr><th>IP ADDRESS</th><th>SUMBER PENCATATAN</th></tr></thead>
           <tbody>
-            {status === 'loading' && <tr><td>Memuat daftar blocked IP dari Express API...</td></tr>}
-            {status === 'error' && <tr><td role="alert">Daftar blocked IP gagal dimuat. {error}</td></tr>}
-            {status === 'empty' && <tr><td>Belum ada IP yang tersimpan pada collection blocked_ips.</td></tr>}
+            {status === 'loading' && <tr><td colSpan="2">Memuat daftar blocked IP dari Express API...</td></tr>}
+            {status === 'error' && <tr><td colSpan="2" role="alert">Daftar blocked IP gagal dimuat. {error}</td></tr>}
+            {status === 'empty' && <tr><td colSpan="2">Belum ada IP di collection blocked_ips. Pastikan event historis sudah diimpor ke MongoDB; backend akan menyinkronkan IP berlabel Fraud saat startup atau setelah import. Restart backend setelah data tersedia. Event baru dapat menambah IP melalui prediksi ML real-time.</td></tr>}
             {status === 'success' && pageIPs.map(item => (
               <tr key={item._id || item.ip_address}>
                 <td className="mono"><b>{item.ip_address}</b></td>
+                <td>{item.source === 'ml_prediction' ? 'Prediksi ML' : item.source === 'historical_dataset_label' ? 'Label Fraud historis dataset' : 'Manual / sumber awal'}</td>
               </tr>
             ))}
           </tbody>
@@ -1282,7 +1603,129 @@ function LatestEventsTable({ events, onSelect, loading }) {
   );
 }
 
+function HeroPage({ onEnter }) {
+  return (
+    <main className="hero-shell">
+      <div className="hero-orb hero-orb-one" aria-hidden="true" />
+      <div className="hero-orb hero-orb-two" aria-hidden="true" />
+      <header className="hero-nav">
+        <div className="hero-brand">
+          <span className="hero-brand-icon"><Shield size={21} /></span>
+          <span><strong>ClickGuard</strong><small>AD FRAUD INTELLIGENCE</small></span>
+        </div>
+        <span className="hero-nav-note"><span /> Sistem monitoring dan deteksi fraud klik iklan</span>
+      </header>
+
+      <section className="hero-main">
+        <div className="hero-copy">
+          <div className="hero-eyebrow"><span /> DIGITAL AD TRAFFIC PROTECTION</div>
+          <h1>Kenali klik berisiko. <em>Lindungi anggaran iklan.</em></h1>
+          <p className="hero-lead">
+            ClickGuard adalah sistem monitoring traffic iklan digital yang menggabungkan pencatatan event,
+            klasifikasi Machine Learning, visualisasi, dan dukungan mitigasi untuk membantu mengidentifikasi
+            aktivitas klik yang tidak wajar.
+          </p>
+          <div className="hero-actions">
+            <button type="button" className="hero-primary" onClick={onEnter}>
+              Buka dashboard <ArrowRight size={17} />
+            </button>
+            <a className="hero-secondary" href="#hero-workflow">Pelajari cara kerja</a>
+          </div>
+          <div className="hero-dataset-note">
+            <span className="hero-note-icon"><Database size={16} /></span>
+            <span><b>Data event klik iklan digital</b><small>Atribut waktu, perangkat, jaringan, dan perilaku klik</small></span>
+          </div>
+        </div>
+
+        <div className="hero-visual" aria-label="Ilustrasi tahapan kerja sistem ClickGuard">
+          <div className="hero-visual-top">
+            <div><span className="hero-live-dot" /> SYSTEM WORKFLOW</div>
+            <span>3 tahap utama</span>
+          </div>
+          <div className="hero-visual-title">Alur pemrosesan ClickGuard</div>
+          <p>Gambaran proses dari event klik sampai aktivitas dapat dipantau.</p>
+          <div className="hero-flow-list">
+            <div className="hero-flow-step">
+              <span className="hero-flow-icon flow-icon-data"><Database size={19} /></span>
+              <div><b>Event klik diterima</b><small>Waktu, perangkat, jaringan, dan perilaku dicatat.</small></div>
+              <span className="hero-flow-index">01</span>
+            </div>
+            <div className="hero-flow-step">
+              <span className="hero-flow-icon flow-icon-ml"><BrainCircuit size={19} /></span>
+              <div><b>Pola dianalisis ML</b><small>Fitur event diproses untuk klasifikasi aktivitas.</small></div>
+              <span className="hero-flow-index">02</span>
+            </div>
+            <div className="hero-flow-step">
+              <span className="hero-flow-icon flow-icon-monitor"><Activity size={19} /></span>
+              <div><b>Traffic dimonitor</b><small>Event dan perubahan traffic ditampilkan di dashboard.</small></div>
+              <span className="hero-flow-index">03</span>
+            </div>
+          </div>
+          <div className="hero-flow-note">
+            <ShieldCheck size={17} />
+            <span><b>Monitoring berbasis event</b><small>Hasil dapat ditinjau sebelum tindakan mitigasi dilakukan.</small></span>
+          </div>
+        </div>
+      </section>
+
+      <section className="hero-workflow" id="hero-workflow">
+        <div className="hero-section-heading">
+          <span>ALUR SISTEM</span>
+          <h2>Dari event klik menjadi informasi yang dapat ditindaklanjuti.</h2>
+        </div>
+        <div className="hero-step-grid">
+          <article className="hero-step-card">
+            <span className="hero-step-number">01</span>
+            <div className="hero-step-icon"><Database size={20} /></div>
+            <h3>Pengumpulan data</h3>
+            <p>Event klik divalidasi dan disimpan melalui Express API serta MongoDB. Setiap event membawa konteks perangkat, waktu, jaringan, dan perilaku klik.</p>
+          </article>
+          <article className="hero-step-card">
+            <span className="hero-step-number">02</span>
+            <div className="hero-step-icon"><BrainCircuit size={20} /></div>
+            <h3>Analisis dan klasifikasi ML</h3>
+            <p>Fitur numerik dan kategorikal diproses, lalu Random Forest mempelajari hubungan fitur dengan label historis: 0 = Valid dan 1 = Fraud.</p>
+          </article>
+          <article className="hero-step-card">
+            <span className="hero-step-number">03</span>
+            <div className="hero-step-icon"><BarChart3 size={20} /></div>
+            <h3>Monitoring dan mitigasi</h3>
+            <p>Dashboard menyajikan ringkasan, daftar event, fraud rate, serta batas kendali traffic. Hasil prediksi dapat diteruskan ke alur pemeriksaan dan mitigasi IP.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="hero-output-grid">
+        <div className="hero-output-intro">
+          <span>HASIL YANG DIHASILKAN</span>
+          <h2>Informasi untuk memantau, memeriksa, dan merespons.</h2>
+        </div>
+        <div className="hero-output-item"><MousePointerClick size={18} /><div><b>Event klik terklasifikasi</b><small>Label Valid/Fraud dan skor risiko yang tersedia dari sumber data atau model.</small></div></div>
+        <div className="hero-output-item"><Activity size={18} /><div><b>Visualisasi traffic</b><small>Jumlah event per jam, hari, minggu, bulan, atau tahun dengan garis batas kendali atas fraud.</small></div></div>
+        <div className="hero-output-item"><ShieldAlert size={18} /><div><b>Daftar aktivitas berisiko</b><small>Event fraud, sinyal VPN/proxy, dan IP yang tercatat pada daftar blokir.</small></div></div>
+        <div className="hero-output-item"><Layers size={18} /><div><b>Metrik evaluasi model</b><small>Accuracy, precision, recall, F1-score, dan ROC-AUC dari hasil training yang tersimpan.</small></div></div>
+      </section>
+
+      <section className="hero-data-caveat">
+        <div className="hero-caveat-icon"><AlertTriangle size={18} /></div>
+        <div>
+          <b>Catatan penggunaan sistem</b>
+          <p>Label Valid/Fraud pada event dashboard saat ini mengikuti label dataset yang tersimpan; label tersebut bukan hasil prediksi ML baru yang otomatis dijalankan untuk setiap event masuk. Layanan prediksi ML tersedia melalui endpoint terpisah untuk proses integrasi dan pengujian. Sinyal bot, VPN, dan proxy merupakan indikator pendukung, bukan bukti tunggal untuk mengambil tindakan.</p>
+          <p>Garis UCL pada Traffic overview khusus memantau jumlah Fraud secara agregat. Titik yang melewati UCL perlu diperiksa lebih lanjut, tetapi tidak otomatis berarti IP harus diblokir. Alur prediksi berbasis riwayat tetap menyimpan hasil ML terpisah dari label aktual dan dapat mencatat IP terindikasi Fraud ke daftar blokir internal. Integrasi Google Ads tersedia pada menu Google Ads melalui kontrol manual yang memerlukan OAuth, izin akun, action key, dan persetujuan admin; belum ada pemblokiran otomatis yang dipicu prediksi ML. Platform iklan lain belum terintegrasi.</p>
+          <p>Nilai biaya dan potensi pemborosan merupakan estimasi berdasarkan kolom budget dummy atau fallback CPC, bukan tagihan aktual platform iklan. Metrik Google Ads invalid clicks menunjukkan klik yang tidak ditagihkan; karena itu bukan nominal kerugian yang sudah dibayar. Sistem saat ini belum dapat membuktikan atau menghentikan kebocoran anggaran kampanye secara langsung.</p>
+        </div>
+      </section>
+
+      <footer className="hero-footer">
+        <span>ClickGuard · Digital Ad Fraud Monitoring</span>
+        <button type="button" onClick={onEnter}>Masuk ke sistem <ArrowRight size={15} /></button>
+      </footer>
+    </main>
+  );
+}
+
 function App() {
+  const [hasEntered, setHasEntered] = useState(false);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -1421,7 +1864,7 @@ function App() {
   }, []);
 
   const filtered = useMemo(() => events.filter(event =>
-    (classFilter === 'all' || (classFilter === 'fraud' ? event.is_fraudulent : !event.is_fraudulent)) &&
+    (classFilter === 'all' || (classFilter === 'fraud' ? event.is_fraudulent === true : event.is_fraudulent === false)) &&
     (deviceFilter === 'all' || String(event.device).toLowerCase() === deviceFilter)
   ), [events, classFilter, deviceFilter]);
 
@@ -1441,11 +1884,11 @@ function App() {
 
   const total = filtered.length;
   const fraudCount = filtered.filter(event => event.is_fraudulent).length;
-  const validCount = total - fraudCount;
   const fraudRate = total ? fraudCount / total * 100 : 0;
   const datasetTotal = events.length;
-  const datasetFraudCount = events.filter(event => event.is_fraudulent).length;
-  const datasetValidCount = datasetTotal - datasetFraudCount;
+  const datasetFraudCount = events.filter(event => event.is_fraudulent === true).length;
+  const datasetValidCount = events.filter(event => event.is_fraudulent === false).length;
+  const datasetPendingCount = events.filter(event => event.is_fraudulent === null || event.is_fraudulent === undefined).length;
   const datasetFraudRate = datasetTotal ? datasetFraudCount / datasetTotal * 100 : 0;
 
   const downloadReport = () => {
@@ -1459,19 +1902,21 @@ function App() {
     ];
 
     events.forEach((event, index) => {
-      const reason = event.is_fraudulent
-        ? [
-            event.VPN_usage && 'VPN terdeteksi',
-            event.proxy_usage && 'Proxy terdeteksi',
-            Number(event.click_frequency) > 0 && 'Frekuensi klik tercatat'
-          ].filter(Boolean).join('; ') || 'Event berlabel fraud pada dataset'
-        : 'Event berlabel valid pada dataset';
+      const reason = event.is_fraudulent === null
+        ? 'Belum tersedia hasil klasifikasi'
+        : event.is_fraudulent
+          ? [
+              event.VPN_usage && 'VPN terdeteksi',
+              event.proxy_usage && 'Proxy terdeteksi',
+              Number(event.click_frequency) > 0 && 'Frekuensi klik tercatat'
+            ].filter(Boolean).join('; ') || 'Event berlabel Fraud'
+          : 'Event berlabel Valid';
 
       rows.push([
         index + 1, event.click_id, event.timestamp, event.ip_address, event.device,
         event.classification, event.risk_score, reason,
         'Klasifikasi mengikuti dataset; belum diverifikasi backend',
-        event.is_fraudulent ? 'Perlu ditinjau' : 'Valid menurut label dataset'
+        event.is_fraudulent === null ? 'Menunggu hasil prediksi' : event.is_fraudulent ? 'Perlu ditinjau' : 'Valid menurut label/hasil klasifikasi'
       ]);
     });
 
@@ -1479,14 +1924,17 @@ function App() {
     rows.push(['Ringkasan', `Total ${events.length} event`]);
     rows.push(['Event berlabel fraud', datasetFraudCount]);
     rows.push(['Event berlabel valid', datasetValidCount]);
-    rows.push(['Kesimpulan', 'Klasifikasi mengikuti dataset dan perlu validasi backend.']);
+    rows.push(['Event belum diprediksi', datasetPendingCount]);
+    rows.push(['Kesimpulan', 'Label aktual dataset dan prediksi ML disimpan sebagai informasi terpisah.']);
     downloadCsv(`clickguard-laporan-${reportDate.toISOString().slice(0, 10)}.csv`, rows);
   };
 
   const title = {
     overview: 'Overview', events: 'Click events', fraud: 'Fraud monitoring',
-    blocked: 'Blocked IPs', settings: 'Pengaturan'
+    blocked: 'Blocked IPs', 'google-ads': 'Google Ads Integration', settings: 'Pengaturan'
   }[active];
+
+  if (!hasEntered) return <HeroPage onEnter={() => setHasEntered(true)} />;
 
   return (
     <div className="app-shell">
@@ -1531,19 +1979,19 @@ function App() {
                   Kembali ke Overview
                 </button>
               )}
-              {active !== 'settings' && (
+              {active !== 'settings' && active !== 'google-ads' && (
                 <button className={`btn-filter ${filterOpen ? 'selected' : ''}`} onClick={() => setFilterOpen(value => !value)} aria-expanded={filterOpen}>
                   <Filter size={16} />{active === 'blocked' ? 'Filter risk signals' : 'Filter data'}<ChevronDown size={14} />
                 </button>
               )}
-              <button className="btn-download" onClick={downloadReport}><FileDown size={16} />Unduh Laporan</button>
+              {active !== 'google-ads' && <button className="btn-download" onClick={downloadReport}><FileDown size={16} />Unduh Laporan</button>}
             </div>
           </div>
 
           {loadError && <div className="demo-banner"><Info size={18} />{loadError}</div>}
           {loading && <p className="loading-message">Memuat dataset...</p>}
 
-          {filterOpen && active !== 'settings' && (
+          {filterOpen && active !== 'settings' && active !== 'google-ads' && (
             <div className="filter-panel">
               <div className="filter-heading"><b>{active === 'blocked' ? 'Filter Risk Signals' : 'Filter event'}</b><button onClick={() => setFilterOpen(false)} aria-label="Tutup filter"><X size={15} /></button></div>
               <label>Klasifikasi
@@ -1561,7 +2009,9 @@ function App() {
             </div>
           )}
 
-          {active === 'settings' ? (
+          {active === 'google-ads' ? (
+            <GoogleAdsPage />
+          ) : active === 'settings' ? (
             <section className="panel settings-panel">
               <div className="panel-head">
                 <div><h2>Status integrasi</h2><p>Informasi koneksi dashboard</p></div>
@@ -1579,7 +2029,7 @@ function App() {
                 <span className="status-chip">{blockedIPStatus === 'success' ? 'Terbaca' : blockedIPStatus === 'empty' ? 'Kosong' : blockedIPStatus === 'error' ? 'Gagal' : 'Memuat'}</span>
               </div>
               <div className="setting-row">
-                <div><b>Model deteksi</b><p>{modelStatus === 'no-run' ? 'Belum ada hasil model run tersimpan di MongoDB.' : modelStatus === 'available' ? 'Endpoint metrics mengembalikan status model.' : 'Status model sedang diperiksa.'}</p></div><span className="status-chip">{modelStatus === 'no-run' ? 'Belum ada hasil model' : modelStatus === 'available' ? 'Status tersedia' : 'Belum diverifikasi'}</span>
+                <div><b>Model deteksi</b><p>{modelStatus === 'no-run' ? 'Belum ada hasil evaluasi model yang tersimpan di MongoDB.' : modelStatus === 'available' ? 'Hasil evaluasi model tersedia. Status ini tidak memastikan layanan Python sedang aktif.' : 'Status hasil evaluasi model sedang diperiksa.'}</p></div><span className="status-chip">{modelStatus === 'no-run' ? 'Hasil belum tersedia' : modelStatus === 'available' ? 'Hasil evaluasi tersedia' : 'Belum diverifikasi'}</span>
               </div>
             </section>
           ) : (
@@ -1588,8 +2038,8 @@ function App() {
                 <>
                   <section className="metrics-grid">
                     <Metric title="Total click events" value={numberFormat(datasetTotal)} sub="Total event dari Express API" Icon={MousePointer2} tone="blue" delay={0} />
-                    <Metric title="Fraud flagged" value={numberFormat(datasetFraudCount)} sub="Event dengan is_fraudulent = 1" Icon={ShieldAlert} tone="rose" delay={60} />
-                    <Metric title="Valid traffic" value={numberFormat(datasetValidCount)} sub="Event dengan is_fraudulent = 0" Icon={ShieldCheck} tone="green" delay={120} />
+                    <Metric title="Fraud flagged" value={numberFormat(datasetFraudCount)} sub="Prediksi ML jika tersedia; selain itu label aktual" Icon={ShieldAlert} tone="rose" delay={60} />
+                    <Metric title="Valid traffic" value={numberFormat(datasetValidCount)} sub={`${numberFormat(datasetPendingCount)} event belum diprediksi`} Icon={ShieldCheck} tone="green" delay={120} />
                     <Metric title="Fraud rate" value={percent(datasetFraudRate)} sub="Fraud ÷ total event × 100%" Icon={Activity} tone="violet" delay={180} />
                   </section>
                   <section className="panels-grid">
@@ -1604,7 +2054,7 @@ function App() {
                             </select>
                             <ChevronDown size={13} aria-hidden="true" />
                           </label>
-                          <Tooltip>Grafik memakai event aktual dari GET /api/events dan mengelompokkan timestamp sesuai periode yang dipilih. Per jam menampilkan seluruh bucket dari jam event paling awal sampai jam event terbaru. Per hari, minggu, bulan, dan tahun mengikuti tanggal event paling awal sampai terbaru. Titik tanpa event bernilai 0. Garis lurus menunjukkan regresi linear Valid dan Fraud.</Tooltip>
+                          <TrafficOverviewInfo />
                         </div>
                       </div>
                       <TrafficChart events={events} period={period} />
@@ -1617,10 +2067,13 @@ function App() {
                       <div className="model-illustration">
                         <div className="orb orb-a" /><div className="orb orb-b" />
                         <div className="model-icon"><Activity size={25} /></div>
-                        <b>{modelStatus === 'no-run' ? 'Belum ada hasil model tersimpan' : modelStatus === 'available' ? 'Status model tersedia' : 'Model belum diverifikasi'}</b>
-                        <p>{modelStatus === 'no-run' ? 'Backend terhubung, tetapi belum ada hasil model run di MongoDB.' : 'Status model dan hasil deteksi mengikuti respons endpoint backend.'}</p>
+                        <b>{modelStatus === 'no-run' ? 'Belum ada hasil evaluasi model tersimpan' : modelStatus === 'available' ? 'Hasil evaluasi model tersedia' : 'Hasil model belum diverifikasi'}</b>
+                        <p>{modelStatus === 'no-run' ? 'Backend terhubung, tetapi artefak hasil evaluasi belum tersinkron ke MongoDB.' : 'Metrik di bawah berasal dari artefak evaluasi yang tersimpan. Layanan prediksi Python perlu diperiksa secara terpisah.'}</p>
                       </div>
                       <div className="model-source"><span>Status integrasi</span><code>{backendStatus === 'connected' ? 'Terhubung' : backendStatus === 'offline' ? 'Offline' : 'Memeriksa'}</code></div>
+                      <p className="model-metrics-note">
+                        Target pada Konsep.docx adalah accuracy di atas 95%. Artefak evaluasi model utama dalam paket ini mencatat accuracy 75,10%, sehingga target tersebut belum tercapai. Angka metrik yang ditampilkan di bawah mengikuti model run tersimpan di MongoDB dan dapat berbeda jika hasil evaluasi diperbarui.
+                      </p>
                       {modelMetrics && (
                         <div className="model-metrics">
                           <h3>Metrik evaluasi model</h3>
@@ -1683,7 +2136,7 @@ function App() {
                     <div className="panel-head events-head">
                       <div>
                         <h2>Blocked IPs aktual</h2>
-                        <p>Daftar IP yang benar-benar tersimpan pada collection blocked_ips melalui GET /api/blocked-ips.</p>
+                        <p>IP Fraud historis dari label dataset dan IP yang ditambahkan oleh prediksi ML. Sumber pencatatan ditampilkan agar label dataset tidak disalahartikan sebagai prediksi model.</p>
                       </div>
                       <span className="table-badge">{blockedIPStatus === 'success' ? `${blockedIPs.length} IP` : blockedIPStatus === 'loading' ? 'Memuat' : blockedIPStatus === 'error' ? 'Gagal dimuat' : '0 IP'}</span>
                     </div>
@@ -1707,7 +2160,7 @@ function App() {
                   </section>
                 </>
               )}
-              {active !== 'overview' && active !== 'blocked' && (
+              {active !== 'overview' && active !== 'blocked' && active !== 'google-ads' && (
                 <section className="panel events-panel">
                   <div className="panel-head events-head">
                     <div>
@@ -1749,7 +2202,7 @@ function App() {
                 ['Proxy usage', selected.proxy_usage ? 'Yes' : 'No']
               ].map(([key, value]) => <div key={key}><small>{key}</small><b>{value}</b></div>)}
             </div>
-            <p className="modal-note">Klasifikasi dan risk score mengikuti nilai yang tersedia pada dataset. Hasil ini belum diverifikasi oleh backend.</p>
+            <p className="modal-note">Sumber klasifikasi: {selected.classification_source || 'Label dataset'}. {selected.classification_source === 'Prediksi ML' || selected.classification_source === 'Daftar blokir internal' ? 'Hasil ini berasal dari alur deteksi operasional.' : 'Label ini merupakan ground-truth dataset, bukan hasil prediksi ML baru.'}</p>
 
             {/* Catatan tambahan Progress 18: menjelaskan arti Risk Score tanpa mengubah alur yang sudah ada. */}
             <section
@@ -1799,15 +2252,29 @@ function App() {
                 <div>
                   <h4 id="detail-followup-title">Penjelasan Event</h4>
                   <span className="followup-status">
-                    {selected.is_fraudulent ? 'Label dataset: Fraud' : 'Label dataset: Valid'}
+                    {selected.classification_source === 'Prediksi ML'
+                      ? `Prediksi ML: ${selected.is_fraudulent ? 'Fraud' : 'Valid'}`
+                      : selected.classification_source === 'Daftar blokir internal'
+                        ? 'Teridentifikasi pada daftar blokir internal'
+                        : selected.classification_source === 'Belum tersedia'
+                          ? 'Belum diprediksi'
+                          : `Label dataset: ${selected.is_fraudulent ? 'Fraud' : 'Valid'}`}
                   </span>
                 </div>
               </div>
 
               <p className="followup-description">
-                {selected.is_fraudulent
-                  ? 'Event ini memiliki label Fraud pada dataset. Label tersebut menjadi sinyal untuk pemeriksaan lebih lanjut, bukan bukti final bahwa aktivitas merupakan fraud.'
-                  : 'Event ini memiliki label Valid pada dataset. Label tersebut menunjukkan klasifikasi yang tercatat, tetapi tetap perlu dibandingkan dengan konteks aktivitas jika ditemukan indikator yang tidak konsisten.'}
+                {selected.classification_source === 'Prediksi ML'
+                  ? (selected.is_fraudulent
+                    ? 'Model ML mengklasifikasikan event ini sebagai Fraud. Hasil prediksi merupakan sinyal otomatis yang tetap perlu dipantau berdasarkan kualitas model dan konteks traffic.'
+                    : 'Model ML mengklasifikasikan event ini sebagai Valid. Hasil prediksi bukan jaminan mutlak bahwa event bebas dari fraud.')
+                  : selected.classification_source === 'Daftar blokir internal'
+                    ? 'IP event ini sudah tercatat pada blocklist internal sehingga event dikenali sebagai sumber yang diblokir. Status ini tidak berarti platform iklan eksternal sudah memblokir IP tersebut.'
+                    : selected.classification_source === 'Belum tersedia'
+                      ? 'Prediksi ML belum tersedia untuk event ini. Periksa koneksi layanan Python ML sebelum menggunakan event untuk keputusan mitigasi.'
+                      : selected.is_fraudulent
+                        ? 'Event ini memiliki label Fraud pada dataset. Label tersebut menjadi sinyal untuk pemeriksaan lebih lanjut, bukan bukti final bahwa aktivitas merupakan fraud.'
+                        : 'Event ini memiliki label Valid pada dataset. Label tersebut menunjukkan klasifikasi yang tercatat, tetapi tetap perlu dibandingkan dengan konteks aktivitas jika ditemukan indikator yang tidak konsisten.'}
               </p>
 
               <h4 className="followup-subtitle">Langkah Lanjutan</h4>
@@ -1862,7 +2329,7 @@ function App() {
 
               <div className="followup-note">
                 <Info size={16} />
-                <p>Langkah-langkah ini merupakan panduan pemeriksaan manual. Dashboard tidak otomatis memverifikasi fraud atau memblokir IP.</p>
+                <p>Prediksi Fraud dapat menambahkan IP ke blocklist internal secara otomatis. Tindakan ini belum mengubah aturan targeting atau pengecualian IP pada platform iklan eksternal; hasil model tetap perlu dipantau karena metrik evaluasi saat ini masih di bawah target proyek.</p>
               </div>
             </section>
           </section>

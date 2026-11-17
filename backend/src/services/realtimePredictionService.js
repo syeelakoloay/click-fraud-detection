@@ -14,7 +14,7 @@
 // Penyimpanan/pemblokiran dikerjakan di Aktivitas 20 dan 23.
 // ============================================================
 
-const { findEventsByIP } = require("./eventService");
+const { createEvent, findEventsByIP } = require("./eventService");
 
 const { addBlockedIP, getBlockedIP } = require("./blockedIPService");
 
@@ -24,8 +24,8 @@ const HISTORY_WINDOW_MINUTES = Number(process.env.HISTORY_WINDOW_MINUTES) || 10;
 // Maksimal event riwayat yang dibaca (listEvents membatasi maks. 100).
 const HISTORY_LIMIT = 100;
 
-// Alamat endpoint prediction (dari Miceflona, Aktivitas 19).
-// Kalau kosong, dipakai hasil TIRUAN supaya Aktivitas 17 tetap bisa diuji.
+// Endpoint prediction Python. URL kosong berarti prediksi tidak tersedia;
+// sistem tidak boleh mengembalikan hasil tiruan sebagai keputusan ML.
 const PREDICTION_URL = process.env.PREDICTION_URL || "";
 const PREDICTION_TIMEOUT_MS = 5000;
 
@@ -115,7 +115,7 @@ function summarizeHistory(
   windowMinutes = HISTORY_WINDOW_MINUTES,
 ) {
   const clickCount = history.length;
-  const fraudCount = history.filter((h) => h.is_fraudulent === 1).length;
+  const fraudCount = history.filter((h) => (h.predicted_is_fraudulent ?? h.is_fraudulent) === 1).length;
 
   // history[0] adalah klik terbaru sebelum event ini
   let secondsSinceLast = null;
@@ -184,9 +184,11 @@ function buildPayload(event, historySummary) {
 // Langkah 4: kirim ke model, terima { label, probability }
 // ------------------------------------------------------------
 async function sendToModel(payload) {
-  // Mode tiruan: dipakai kalau PREDICTION_URL kosong.
+  // Jangan pernah mengembalikan prediksi tiruan sebagai hasil ML.
   if (!PREDICTION_URL) {
-    return { label: 0, probability: 0.1, source: "mock" };
+    const error = new Error("PREDICTION_URL belum dikonfigurasi; hasil prediksi ML tidak tersedia.");
+    error.status = 503;
+    throw error;
   }
 
   // Model hanya menerima 15 feature, jadi hanya "features" yang dikirim.
@@ -255,7 +257,7 @@ async function predictWithHistory(event) {
   // addBlockedIP bersifat idempoten: IP yang sama tidak tercatat dua kali.
   let ipBlocked = false;
   if (result.label === 1) {
-    await addBlockedIP(event.ip_address);
+    await addBlockedIP(event.ip_address, { source: "ml_prediction" });
     ipBlocked = true;
   }
 
@@ -264,10 +266,57 @@ async function predictWithHistory(event) {
     ip_address: event.ip_address,
     label: result.label, // 1 = fraud, 0 = valid
     probability: result.probability,
-    prediction_source: result.source, // "mock" atau "model"
+    prediction_source: result.source, // "model"
     blocked_by_ip_list: false,
     ip_blocked: ipBlocked,
     history_used: summary,
+  };
+}
+
+
+/**
+ * Production ingestion path for one new click event.
+ * It runs the ML/IP-list check, stores the event with a separate prediction
+ * field (ground-truth is_fraudulent remains optional), and preserves the event
+ * even when the Python model is temporarily unavailable.
+ */
+async function ingestAndPredict(event) {
+  validateEvent(event);
+
+  let prediction;
+  try {
+    prediction = await predictWithHistory(event);
+  } catch (error) {
+    prediction = {
+      label: null,
+      probability: null,
+      prediction_source: "model",
+      prediction_status: "unavailable",
+      blocked_by_ip_list: false,
+      ip_blocked: false,
+      message: error.status === 503
+        ? error.message
+        : "Layanan prediksi tidak dapat memproses event ini.",
+    };
+  }
+
+  const blockedByList = prediction.blocked_by_ip_list === true;
+  const hasModelPrediction = [0, 1].includes(prediction.label);
+  const storedEvent = await createEvent({
+    ...event,
+    predicted_is_fraudulent: hasModelPrediction ? prediction.label : blockedByList ? 1 : undefined,
+    prediction_probability: Number.isFinite(prediction.probability) ? prediction.probability : undefined,
+    prediction_source: blockedByList ? "ip_list" : hasModelPrediction ? "model" : undefined,
+    prediction_status: blockedByList ? "blocked" : hasModelPrediction ? "completed" : "unavailable",
+  });
+
+  return {
+    data: storedEvent,
+    prediction: {
+      ...prediction,
+      prediction_status: blockedByList ? "blocked" : hasModelPrediction ? "completed" : "unavailable",
+    },
+    accepted_for_processing: !blockedByList,
   };
 }
 
@@ -277,4 +326,5 @@ module.exports = {
   buildPayload,
   sendToModel,
   predictWithHistory,
+  ingestAndPredict,
 };

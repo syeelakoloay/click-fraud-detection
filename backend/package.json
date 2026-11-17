@@ -24,14 +24,17 @@
     "test:dataset-import-validation": "node --test scripts/testDatasetImportValidation.js",
     "test:dataset-import-error-handler": "node --test scripts/testDatasetImportErrorHandler.js",
     "check:activity28": "node scripts/checkApiContractActivity28.js",
-    "check:syntax": "node scripts/checkSyntaxActivity28.js"
+    "check:syntax": "node scripts/checkSyntaxActivity28.js",
+    "test:google-ads": "node --test tests/googleAdsService.test.js tests/googleAdsController.test.js",
+    "train:verified-click": "python ml/train_verified_click_model.py",
+    "train:google-ads": "python ml/train_google_ads_campaign_model.py",
+    "train:fdma-publisher": "python ml/train_fdma_publisher_model.py"
   },
   "dependencies": {
-    "cors": "^2.8.6",
     "dotenv": "^16.0.0",
-    "express": "^5.1.0",
     "mongoose": "^8.0.0",
-    "py": "^0.0.0"
+    "cors": "^2.8.6",
+    "express": "^5.1.0"
   },
   "engines": {
     "node": ">=18"

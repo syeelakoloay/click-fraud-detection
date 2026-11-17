@@ -411,3 +411,33 @@ export function apiRange(period, now) {
   return { start, end: new Date(now) };
 }
 
+
+/**
+ * 3-sigma upper control limit for a fraud proportion (p-chart), returned as
+ * an event count so it can be plotted against fraud-count points. The limit
+ * is exposure-adjusted: intervals with more clicks receive a higher count UCL.
+ * Returns null when the interval has no clicks or the baseline is invalid.
+ */
+/** Convert ordered chart coordinates into an SVG polyline point string.
+ * Invalid coordinates are skipped; valid zero-valued points are retained so
+ * traffic lines remain connected across intervals with no events.
+ */
+export function formatPolylinePoints(points = []) {
+  return points
+    .filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+    .map(point => `${point.x},${point.y}`)
+    .join(' ');
+}
+
+export function calculateFraudUpperControlLimit(totalClicks, baselineFraudRate, sigma = 3) {
+  const n = Number(totalClicks);
+  const p = Number(baselineFraudRate);
+  const z = Number(sigma);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(p) || p < 0 || p > 1) return null;
+  if (!Number.isFinite(z) || z <= 0) return null;
+
+  const expectedFraud = n * p;
+  const standardDeviation = Math.sqrt(n * p * (1 - p));
+  return Math.min(n, Math.ceil(expectedFraud + z * standardDeviation));
+}

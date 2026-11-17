@@ -44,7 +44,7 @@ function getErrorMessage(error) {
   return error && error.message ? error.message : "Permintaan tidak dapat diproses.";
 }
 
-function createEventController(eventService) {
+function createEventController(eventService, blockedIPService) {
   async function createEvent(req, res, next) {
     try {
       assertObjectPayload(req.body);
@@ -160,6 +160,9 @@ function createEventController(eventService) {
       }
 
       const successCount = results.filter((item) => item.status === "created").length;
+      if (successCount > 0 && blockedIPService?.syncHistoricalFraudIPs) {
+        await blockedIPService.syncHistoricalFraudIPs();
+      }
       return res.status(200).json({
         receivedCount: events.length,
         successCount,

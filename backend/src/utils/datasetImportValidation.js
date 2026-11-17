@@ -11,6 +11,7 @@ const INTEGER_FIELDS = Object.freeze([
   "VPN_usage",
   "proxy_usage",
   "is_fraudulent",
+  "budget",
 ]);
 
 function createImportValidationError(message, status = 400, importCode = "INVALID_IMPORT") {
@@ -88,6 +89,16 @@ function validateDatasetSemantics(payload) {
         "INVALID_URL"
       );
     }
+  }
+
+  const budgetText = String(payload.budget ?? "").trim();
+  const budgetValue = Number(budgetText);
+  if (!budgetText || !Number.isFinite(budgetValue) || budgetValue < 0) {
+    throw createImportValidationError(
+      "budget wajib berupa nominal Rupiah numerik yang tidak negatif.",
+      400,
+      "INVALID_BUDGET"
+    );
   }
 }
 

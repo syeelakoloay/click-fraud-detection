@@ -36,6 +36,7 @@ const HEADERS = [
   "proxy_usage",
   "bot_likelihood_score",
   "is_fraudulent",
+  "budget",
 ];
 
 function databaseName(uri, variableName) {
@@ -106,6 +107,7 @@ function validRow(clickId, token, overrides = {}) {
     proxy_usage: "0",
     bot_likelihood_score: "0.25",
     is_fraudulent: "0",
+    budget: "2500",
     ...overrides,
   };
 }

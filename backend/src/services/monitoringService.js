@@ -5,6 +5,8 @@ const { buildTimestampFilter, parseDate } = require("./serviceUtils");
 const { listBlockedIPs } = require("./blockedIPService");
 const { getModelStatus } = require("./modelRunService");
 
+const effectiveFraudLabel = { $ifNull: ["$predicted_is_fraudulent", "$is_fraudulent"] };
+
 async function getOverview(options = {}) {
   const match = buildTimestampFilter(options);
   const [result] = await Event.aggregate([
@@ -14,10 +16,13 @@ async function getOverview(options = {}) {
         _id: null,
         totalEvents: { $sum: 1 },
         fraudCount: {
-          $sum: { $cond: [{ $eq: ["$is_fraudulent", 1] }, 1, 0] },
+          $sum: { $cond: [{ $eq: [effectiveFraudLabel, 1] }, 1, 0] },
         },
         validCount: {
-          $sum: { $cond: [{ $eq: ["$is_fraudulent", 0] }, 1, 0] },
+          $sum: { $cond: [{ $eq: [effectiveFraudLabel, 0] }, 1, 0] },
+        },
+        unclassifiedCount: {
+          $sum: { $cond: [{ $in: [effectiveFraudLabel, [0, 1]] }, 0, 1] },
         },
         latestEventAt: { $max: "$timestamp" },
       },
@@ -27,11 +32,13 @@ async function getOverview(options = {}) {
   const totalEvents = result?.totalEvents ?? 0;
   const fraudCount = result?.fraudCount ?? 0;
   const validCount = result?.validCount ?? 0;
+  const unclassifiedCount = result?.unclassifiedCount ?? Math.max(0, totalEvents - fraudCount - validCount);
 
   return {
     totalEvents,
     fraudCount,
     validCount,
+    unclassifiedCount,
     fraudRate: totalEvents === 0 ? 0 : Number(((fraudCount / totalEvents) * 100).toFixed(2)),
     latestEventAt: result?.latestEventAt ?? null,
   };
@@ -58,10 +65,13 @@ async function getTrafficByTime(options = {}) {
         },
         totalEvents: { $sum: 1 },
         fraudCount: {
-          $sum: { $cond: [{ $eq: ["$is_fraudulent", 1] }, 1, 0] },
+          $sum: { $cond: [{ $eq: [effectiveFraudLabel, 1] }, 1, 0] },
         },
         validCount: {
-          $sum: { $cond: [{ $eq: ["$is_fraudulent", 0] }, 1, 0] },
+          $sum: { $cond: [{ $eq: [effectiveFraudLabel, 0] }, 1, 0] },
+        },
+        unclassifiedCount: {
+          $sum: { $cond: [{ $in: [effectiveFraudLabel, [0, 1]] }, 0, 1] },
         },
       },
     },
@@ -73,6 +83,7 @@ async function getTrafficByTime(options = {}) {
         totalEvents: 1,
         fraudCount: 1,
         validCount: 1,
+        unclassifiedCount: 1,
       },
     },
   ]).exec();

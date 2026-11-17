@@ -74,8 +74,14 @@ def main():
 
     X = df.drop(columns=[TARGET])
 
-    # Keluarkan identifier mentah dan kolom yang belum
-    # diputuskan aman untuk digunakan sebagai fitur.
+    # Kolom ini mempunyai pemisahan sempurna terhadap label pada dataset sumber
+    # (Valid 0.00–0.75; Fraud 0.76–1.00), sehingga berisiko menjadi target leakage.
+    # Jika seseorang menambahkannya lagi ke file fitur, keluarkan secara eksplisit.
+    if "bot_likelihood_score" in X.columns:
+        print("PERINGATAN: bot_likelihood_score ditemukan pada file fitur dan akan dikeluarkan untuk mencegah target leakage.")
+
+    # Keluarkan identifier mentah, URL mentah, timestamp, dan skor yang belum
+    # dapat dibuktikan independen dari label.
     excluded_columns = [
         "click_id",
         "user_id",
@@ -93,6 +99,9 @@ def main():
     if columns_to_remove:
         print("Kolom yang dikecualikan:", columns_to_remove)
         X = X.drop(columns=columns_to_remove)
+
+    if "bot_likelihood_score" in X.columns:
+        raise ValueError("bot_likelihood_score tidak boleh masuk ke fitur training utama.")
 
     if X.shape[1] == 0:
         raise ValueError(
@@ -261,6 +270,8 @@ def main():
     print("\n=== RINGKASAN TRAINING ===")
     print(f"Jumlah data        : {len(df)}")
     print(f"Jumlah fitur input : {X.shape[1]}")
+    print("Target supervised  : is_fraudulent (0=Valid, 1=Fraud)")
+    print("bot_likelihood_score: tidak digunakan sebagai input model utama karena risiko target leakage")
     print(f"Data training      : {len(X_train)}")
     print(f"Data testing       : {len(X_test)}")
     print(f"Jumlah fraud       : {(y == 1).sum()}")

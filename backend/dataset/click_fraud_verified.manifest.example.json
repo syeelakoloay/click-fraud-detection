@@ -1,0 +1,12 @@
+{
+  "label_source": "Tuliskan sumber independen yang benar-benar digunakan untuk memverifikasi label",
+  "source_url_or_reference": "URL, DOI, dokumen audit, nama platform, atau identitas laporan verifikasi",
+  "verification_method": "Jelaskan prosedur verifikasi fraud independen, termasuk bukti yang diperiksa dan waktu penetapan label",
+  "label_column": "is_fraudulent",
+  "independent_of_bot_likelihood_score": true,
+  "bot_likelihood_score_used_to_assign_label": false,
+  "annotator_count": 2,
+  "adjudication_rule": "Jelaskan cara menyelesaikan perbedaan label antar-annotator atau sumber otoritatif",
+  "license": "Nama lisensi atau dasar izin penggunaan dataset",
+  "notes": "Manifest adalah catatan provenance yang diisi penanggung jawab data; skrip memeriksa kelengkapan, tetapi tidak dapat membuktikan kejujuran klaim secara otomatis. Jangan menyatakan data terverifikasi jika label hanya berasal dari bot_likelihood_score, model yang sama, atau tebakan."
+}

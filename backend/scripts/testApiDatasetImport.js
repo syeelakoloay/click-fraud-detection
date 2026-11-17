@@ -10,7 +10,7 @@ const HEADERS = [
   "operating_system", "referrer_url", "page_url", "click_duration", "scroll_depth",
   "mouse_movement", "keystrokes_detected", "ad_position", "click_frequency",
   "time_since_last_click", "device_ip_reputation", "VPN_usage", "proxy_usage",
-  "bot_likelihood_score", "is_fraudulent",
+  "bot_likelihood_score", "is_fraudulent", "budget",
 ];
 
 function validRow(overrides = {}) {
@@ -36,6 +36,7 @@ function validRow(overrides = {}) {
     proxy_usage: "0",
     bot_likelihood_score: "0.25",
     is_fraudulent: "0",
+    budget: "2500",
     ...overrides,
   };
 }
@@ -100,6 +101,8 @@ test("POST /api/events/import validates, casts, and imports a valid CSV record",
     assert.equal(fake.saved.length, 1);
     assert.equal(typeof fake.saved[0].click_duration, "number");
     assert.equal(typeof fake.saved[0].is_fraudulent, "number");
+    assert.equal(typeof fake.saved[0].budget, "number");
+    assert.equal(fake.saved[0].budget, 2500);
     assert.ok(fake.saved[0].timestamp instanceof Date);
     assert.equal(body.results[0].status, "created");
     assert.equal(body.results[0].rowNumber, 2);
@@ -203,16 +206,19 @@ test("CSV semantic validation rejects invalid timestamp, IP, URL, and integer va
         validRow({ click_id: "invalid-ip", ip_address: "999.10.1.1" }),
         validRow({ click_id: "invalid-url", page_url: "javascript:alert(1)" }),
         validRow({ click_id: "invalid-integer", mouse_movement: "2.5" }),
+        validRow({ click_id: "invalid-budget-fraction", budget: "2500.5" }),
+        validRow({ click_id: "invalid-budget-negative", budget: "-100" }),
       ]),
     });
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.receivedCount, 4);
+    assert.equal(body.receivedCount, 6);
     assert.equal(body.successCount, 0);
-    assert.equal(body.failureCount, 4);
+    assert.equal(body.failureCount, 6);
     assert.deepEqual(body.results.map((item) => item.error.code), [
       "INVALID_TIMESTAMP", "INVALID_IP_ADDRESS", "INVALID_URL", "INVALID_INTEGER_FIELD",
+      "INVALID_INTEGER_FIELD", "INVALID_BUDGET",
     ]);
     assert.equal(fake.saved.length, 0, "Data yang gagal validasi tidak boleh diteruskan ke service.");
   });

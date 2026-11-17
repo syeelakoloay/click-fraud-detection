@@ -8,6 +8,22 @@ const blockedIPSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    source: {
+      type: String,
+      enum: ["historical_dataset_label", "ml_prediction", "manual"],
+      default: "manual",
+    },
+    source_event_count: {
+      type: Number,
+      min: 1,
+    },
+    blocked_at: {
+      type: Date,
+      default: Date.now,
+    },
+    last_seen_at: {
+      type: Date,
+    },
   },
   {
     collection: "blocked_ips",

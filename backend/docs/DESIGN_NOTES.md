@@ -1,7 +1,7 @@
 # Catatan Desain
 
 ## 1. Event
-Collection `events` mempertahankan 21 field dataset yang telah dipetakan pada tahap sebelumnya.
+Collection `events` mempertahankan 22 field dataset yang telah dipetakan pada tahap sebelumnya.
 
 `click_id` dipertahankan sebagai identifier unik event. `is_fraudulent` tetap merupakan target/label, bukan feature input. `ip_address` tetap digunakan untuk konteks sistem dan mitigasi, sedangkan `timestamp` merupakan data waktu event.
 

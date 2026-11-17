@@ -4,10 +4,10 @@ const express = require("express");
 const createEventController = require("../controllers/eventController");
 const createDatasetImportController = require("../controllers/datasetImportController");
 
-function createEventRouter(eventService) {
+function createEventRouter(eventService, blockedIPService) {
   const router = express.Router();
-  const controller = createEventController(eventService);
-  const importDataset = createDatasetImportController(eventService);
+  const controller = createEventController(eventService, blockedIPService);
+  const importDataset = createDatasetImportController(eventService, blockedIPService);
 
   // Static routes stay before parameterized routes such as /:clickId.
   router.post(

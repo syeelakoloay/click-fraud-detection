@@ -2,6 +2,7 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import json
+import os
 import traceback
 
 import joblib
@@ -9,7 +10,8 @@ import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = PROJECT_ROOT / "ml" / "results" / "random_forest_model.joblib"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "ml" / "results" / "random_forest_model.joblib"
+MODEL_PATH = Path(os.environ.get("CLICK_MODEL_PATH", str(DEFAULT_MODEL_PATH))).expanduser().resolve()
 HOST = "127.0.0.1"
 PORT = 8000
 
@@ -36,6 +38,7 @@ CATEGORICAL_FEATURES = FEATURE_COLUMNS[9:]
 
 model = joblib.load(MODEL_PATH)
 print(f"Model dimuat: {MODEL_PATH}")
+print("Model harus menggunakan 15 fitur runtime yang sama; model terverifikasi hanya diaktifkan setelah evaluasi terpisah.")
 print(f"Layanan prediksi berjalan pada http://{HOST}:{PORT}")
 
 

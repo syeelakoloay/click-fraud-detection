@@ -2,6 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { calculateFraudUpperControlLimit, formatPolylinePoints } from "../src/traffic.Core.mjs";
 
 
 function groupTrafficByPeriod(events, interval) {
@@ -132,4 +133,42 @@ test("mengurutkan kelompok berdasarkan waktu", () => {
     result.map(item => item[0]),
     ["2025-0-1", "2025-0-2", "2025-0-3"]
   );
+});
+
+
+test("menghitung UCL 3-sigma dengan penyesuaian volume interval", () => {
+  assert.equal(calculateFraudUpperControlLimit(100, 0.25), 38);
+  assert.equal(calculateFraudUpperControlLimit(20, 0.25), 11);
+});
+
+test("UCL dibatasi oleh total klik dan tidak menghitung interval kosong", () => {
+  assert.equal(calculateFraudUpperControlLimit(5, 1), 5);
+  assert.equal(calculateFraudUpperControlLimit(0, 0.25), null);
+});
+
+test("UCL menolak baseline atau sigma yang tidak valid", () => {
+  assert.equal(calculateFraudUpperControlLimit(10, 1.2), null);
+  assert.equal(calculateFraudUpperControlLimit(10, 0.25, 0), null);
+});
+
+
+test("membangun garis polyline sesuai urutan interval dan mempertahankan titik nol", () => {
+  const points = [
+    { x: 10, y: 80 },
+    { x: 30, y: 96 },
+    { x: 50, y: 70 }
+  ];
+
+  assert.equal(formatPolylinePoints(points), "10,80 30,96 50,70");
+});
+
+test("mengabaikan koordinat tidak valid tanpa menghapus titik traffic valid", () => {
+  const points = [
+    { x: 10, y: 80 },
+    { x: Number.NaN, y: 20 },
+    { x: 30, y: 0 },
+    null
+  ];
+
+  assert.equal(formatPolylinePoints(points), "10,80 30,0");
 });

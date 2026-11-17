@@ -13,6 +13,11 @@
     "test:frontend": "npm --prefix frontend run test:activity16 && npm --prefix frontend run test:activity28",
     "check:backend": "npm --prefix backend run check:activity28 && npm --prefix backend run check:syntax",
     "test:backend": "npm --prefix backend test",
-    "verify:activity28": "npm run check:backend && npm run test:frontend && npm run build:frontend"
+    "verify:activity28": "npm run check:backend && npm run test:frontend && npm run build:frontend",
+    "audit:dataset": "python backend/ml/audit_dataset.py",
+    "test:google-ads": "npm --prefix backend run test:google-ads",
+    "train:verified-click": "npm --prefix backend run train:verified-click",
+    "train:fdma-publisher": "npm --prefix backend run train:fdma-publisher",
+    "train:google-ads": "npm --prefix backend run train:google-ads"
   }
 }

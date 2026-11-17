@@ -42,7 +42,7 @@ Respons berisi `data.interval` dan array `data.data`; tiap item memiliki `period
 
 ### `GET /api/blocked-ips`
 
-Respons mengikuti bentuk hasil service: `data`, `total`, `page`, `limit`, dan `totalPages`. Schema `BlockedIP` yang tersedia hanya mendefinisikan `ip_address`; endpoint tidak menambahkan alasan atau waktu pemblokiran. Respons mempertahankan metadata pagination yang dikembalikan service.
+Respons mengikuti bentuk hasil service: `data`, `total`, `page`, `limit`, dan `totalPages`. Schema `BlockedIP` menyimpan `ip_address`, sumber pencatatan (`historical_dataset_label`, `ml_prediction`, atau `manual`), waktu pemblokiran, waktu terakhir terlihat, dan jumlah event sumber historis bila tersedia. Respons mempertahankan metadata pagination yang dikembalikan service.
 
 ## Perintah pengujian via PowerShell
 

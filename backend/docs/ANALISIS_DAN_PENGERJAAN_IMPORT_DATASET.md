@@ -10,7 +10,7 @@ Endpoint ini melengkapi endpoint `POST /api/events/ingest` yang telah menerima b
 
 | Pemeriksaan | Temuan | Penilaian |
 |---|---|---|
-| Kesesuaian dengan referensi | Dataset sumber berformat CSV dan model `Event` memuat 21 kolomnya. | Sesuai. |
+| Kesesuaian dengan referensi | Dataset sumber berformat CSV dan model `Event` memuat 22 kolomnya. | Sesuai. |
 | Relevansi | Backend sebelumnya memiliki CRUD event dan batch ingestion JSON, tetapi belum memiliki endpoint CSV pada daftar endpoint yang diperiksa. | Relevan; menjadi fungsi impor tersendiri. |
 | Kesesuaian output | Endpoint dapat menerima CSV, memeriksa header dan struktur setiap record, memvalidasi berdasarkan schema `Event`, lalu meneruskan data valid melalui service yang sudah ada. | Sesuai dengan target “Endpoint import dataset”. |
 | Konsistensi | `POST /api/events/ingest` tetap menangani JSON. Import CSV menggunakan schema, service, collection, dan indeks unik `click_id` yang sudah ada. | Tidak ditemukan konflik fungsional dalam referensi yang diperiksa. |
@@ -20,10 +20,10 @@ Endpoint ini melengkapi endpoint `POST /api/events/ingest` yang telah menerima b
 
 | Langkah | Tujuan | Yang diperiksa/dikerjakan | Data atau referensi | Hasil yang harus diperoleh |
 |---|---|---|---|---|
-| 1. Periksa dataset dan schema | Menjaga struktur data tetap konsisten. | Cocokkan nama 21 kolom dataset sumber dengan schema `Event`. | `click_fraud_dataset.csv`, data dictionary, `src/models/Event.js`. | Daftar header kanonis dan aturan validasi mengikuti model yang sudah ada. |
+| 1. Periksa dataset dan schema | Menjaga struktur data tetap konsisten. | Cocokkan nama 22 kolom dataset sumber dengan schema `Event`. | `click_fraud_dataset.csv`, data dictionary, `src/models/Event.js`. | Daftar header kanonis dan aturan validasi mengikuti model yang sudah ada. |
 | 2. Buat route terpisah | Mempertahankan endpoint lama. | Tambahkan `POST /api/events/import` sebelum route lain yang berpotensi memakai parameter dinamis; biarkan `/ingest` tetap menerima JSON. | `src/routes/eventRoutes.js`, daftar endpoint backend. | Route import CSV tersedia tanpa mengganti ingestion JSON. |
 | 3. Parse CSV | Mengubah isi CSV menjadi record tanpa mengacaukan koma atau tanda kutip di dalam field. | Tangani kutipan, tanda kutip ganda, CRLF/LF, dan baris baru di dalam field yang dikutip; tolak format kutipan yang rusak. | Format CSV dataset sumber. | Kumpulan record yang dapat diperiksa. |
-| 4. Validasi struktur | Menolak berkas dengan kontrak kolom yang berbeda. | Periksa header hilang/duplikat/tidak dikenal, jumlah field tiap record, jumlah maksimum 5.000 record, dan isi nonkosong. | Dataset 21 kolom; batas batch JSON sebelumnya 5.000 item. | Kesalahan format dilaporkan sebelum data disimpan; record salah bentuk ditolak per baris. |
+| 4. Validasi struktur | Menolak berkas dengan kontrak kolom yang berbeda. | Periksa header hilang/duplikat/tidak dikenal, jumlah field tiap record, jumlah maksimum 5.000 record, dan isi nonkosong. | Dataset 22 kolom; batas batch JSON sebelumnya 5.000 item. | Kesalahan format dilaporkan sebelum data disimpan; record salah bentuk ditolak per baris. |
 | 5. Validasi isi sebelum simpan | Mencegah record yang tidak sesuai schema masuk ke service penyimpanan. | Buat dokumen sementara `Event`, jalankan validasi dan casting Mongoose, kemudian kirim payload tervalidasi ke `eventService.createEvent`. | `src/models/Event.js`, `src/services/eventService.js`. | Hanya record yang lolos validasi schema yang diteruskan ke service. |
 | 6. Pisahkan error penyimpanan | Mencegah kegagalan MongoDB dianggap sebagai invalid row. | Error validasi dan duplicate key menjadi hasil per record; error infrastruktur diteruskan sebagai HTTP 503 `IMPORT_PERSISTENCE_FAILED`. | Kontrak error endpoint import dan middleware error handler. | Gangguan penyimpanan tidak dilaporkan sebagai HTTP 200 dengan semua row ditolak. |
 | 7. Laporkan hasil secara ringkas | Memudahkan pemeriksaan hasil tanpa respons berlebihan. | Kembalikan jumlah record diterima, berhasil, gagal, serta nomor baris/status/error. Jangan mengirim ulang seluruh dokumen untuk setiap row sukses. | Respons endpoint import. | Respons untuk dataset 5.000 baris lebih ringan dan masih dapat ditelusuri. |
@@ -34,7 +34,7 @@ Endpoint ini melengkapi endpoint `POST /api/events/ingest` yang telah menerima b
 - Method dan path: `POST /api/events/import`.
 - Input: body mentah berisi CSV dengan `Content-Type: text/csv` atau `application/csv`.
 - Batas teknis: body maksimum 10 MB dan maksimum 5.000 record data per request.
-- Header: harus mencakup tepat 21 kolom dataset sumber; urutan kolom boleh berbeda karena pemetaan memakai nama header.
+- Header: harus mencakup tepat 22 kolom dataset sumber; urutan kolom boleh berbeda karena pemetaan memakai nama header.
 - Validasi: format CSV, header, jumlah field, field wajib, tipe data, enum, rentang numerik, timestamp kalender yang valid, IP valid, URL HTTP/HTTPS, bilangan bulat sesuai makna field, dan duplikasi `click_id` saat simpan.
 - Hasil: `receivedCount`, `successCount`, `failureCount`, dan `results`.
 - Penyimpanan: lewat `eventService.createEvent`; schema dan model tidak diubah.
@@ -43,7 +43,7 @@ Pengiriman CSV menggunakan body mentah merupakan keputusan implementasi karena r
 
 ## 5. Hal yang sengaja tidak ditambahkan
 
-Endpoint tidak membuat field dataset baru, tidak mengubah label `is_fraudulent`, tidak melakukan feature engineering, tidak memanggil model Random Forest, tidak menjalankan prediksi, tidak menambahkan IP ke blocked list secara otomatis, dan tidak mengimpor dataset otomatis saat server dimulai. CSV 16 kolom hasil feature engineering bukan input endpoint ini; endpoint menerima CSV sumber 21 kolom.
+Endpoint tidak membuat field dataset baru, tidak mengubah label `is_fraudulent`, tidak melakukan feature engineering, tidak memanggil model Random Forest, tidak menjalankan prediksi, tidak menambahkan IP ke blocked list secara otomatis, dan tidak mengimpor dataset otomatis saat server dimulai. CSV 16 kolom hasil feature engineering bukan input endpoint ini; endpoint menerima CSV sumber 22 kolom.
 
 ## 6. Pengujian revisi dan status verifikasi
 

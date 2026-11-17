@@ -14,7 +14,8 @@ const eventSchema = new mongoose.Schema(
     },
     user_id: {
       type: String,
-      required: true,
+      required: false,
+      default: "anonymous",
       trim: true,
     },
     ip_address: {
@@ -39,12 +40,14 @@ const eventSchema = new mongoose.Schema(
     },
     referrer_url: {
       type: String,
-      required: true,
+      required: false,
+      default: "unknown",
       trim: true,
     },
     page_url: {
       type: String,
-      required: true,
+      required: false,
+      default: "unknown",
       trim: true,
     },
     click_duration: {
@@ -98,16 +101,48 @@ const eventSchema = new mongoose.Schema(
       required: true,
       enum: [0, 1],
     },
+    // Skor dataset sumber bersifat opsional untuk event live; model utama tidak memakainya.
     bot_likelihood_score: {
       type: Number,
-      required: true,
+      required: false,
       min: 0,
       max: 1,
     },
+    // Label aktual tetap digunakan untuk dataset historis dan evaluasi.
+    // Event real-time tidak selalu memiliki ground-truth saat diterima.
     is_fraudulent: {
       type: Number,
-      required: true,
+      required: false,
       enum: [0, 1],
+    },
+    predicted_is_fraudulent: {
+      type: Number,
+      required: false,
+      enum: [0, 1],
+    },
+    prediction_probability: {
+      type: Number,
+      required: false,
+      min: 0,
+      max: 1,
+    },
+    prediction_source: {
+      type: String,
+      required: false,
+      enum: ["model", "ip_list"],
+    },
+    prediction_status: {
+      type: String,
+      required: false,
+      enum: ["completed", "blocked", "unavailable"],
+    },
+    budget: {
+      type: Number,
+      min: 0,
+      validate: {
+        validator: Number.isInteger,
+        message: "budget harus berupa bilangan bulat Rupiah.",
+      },
     },
   },
   {

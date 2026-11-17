@@ -7,4 +7,5 @@ module.exports = {
   modelRunService: require("./modelRunService"),
   monitoringService: require("./monitoringService"),
   predictionService: require("./predictionService"),
+  googleAdsService: require("./googleAdsService"),
 };

@@ -1,6 +1,35 @@
 "use strict";
 
+const fs = require("node:fs");
+const path = require("node:path");
 const { ModelRun } = require("../models");
+
+const MODEL_TYPE_FROM_ARTIFACT = "Random Forest baseline";
+const MODEL_METRICS_PATH = path.resolve(__dirname, "../../ml/results/model_metrics.csv");
+const METRIC_FIELDS = ["accuracy", "precision", "recall", "f1_score", "roc_auc"];
+
+function readModelMetricsArtifact() {
+  if (!fs.existsSync(MODEL_METRICS_PATH)) {
+    throw new Error(`Artefak metrik model tidak ditemukan: ${MODEL_METRICS_PATH}`);
+  }
+  const lines = fs.readFileSync(MODEL_METRICS_PATH, "utf8")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .split(/\r?\n/);
+  if (lines.length < 2) throw new Error("Artefak metrik model tidak memiliki baris hasil.");
+  const headers = lines[0].split(",").map((value) => value.trim());
+  const values = lines[1].split(",").map((value) => value.trim());
+  const metrics = {};
+  for (const field of METRIC_FIELDS) {
+    const index = headers.indexOf(field);
+    const value = Number(values[index]);
+    if (index < 0 || !Number.isFinite(value) || value < 0 || value > 1) {
+      throw new Error(`Nilai metrik ${field} pada artefak tidak valid.`);
+    }
+    metrics[field] = value;
+  }
+  return metrics;
+}
 const {
   assertNonEmptyString,
   normalizePagination,
@@ -47,9 +76,25 @@ async function listModelRuns(options = {}) {
   };
 }
 
+async function syncModelMetricsFromArtifact() {
+  const metrics = readModelMetricsArtifact();
+  const record = await ModelRun.findOneAndUpdate(
+    { model_type: MODEL_TYPE_FROM_ARTIFACT },
+    { $set: { model_type: MODEL_TYPE_FROM_ARTIFACT, ...metrics } },
+    { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+  ).lean().exec();
+  return toPlainObject(record);
+}
+
 async function getLatestModelRun() {
-  // ModelRun's existing Activity 6 schema has no createdAt field. ObjectId ordering
-  // is used only as an insertion-order approximation; it is not a training timestamp.
+  // Prefer metrics for the model artifact loaded by prediction_api.py.
+  const activeArtifactRun = await ModelRun.findOne({ model_type: MODEL_TYPE_FROM_ARTIFACT })
+    .sort({ _id: -1 })
+    .lean()
+    .exec();
+  if (activeArtifactRun) return activeArtifactRun;
+
+  // Fallback for other registered model runs when the active artifact has not been synced.
   return ModelRun.findOne({}).sort({ _id: -1 }).lean().exec();
 }
 
@@ -60,13 +105,15 @@ async function getModelStatus() {
     hasRecordedRun: Boolean(latestModelRun),
     latestModelRun,
     note: latestModelRun
-      ? "Ada hasil model run tersimpan. Status ini tidak membuktikan layanan prediksi sedang aktif."
+      ? "Metrik evaluasi model tersimpan di MongoDB. Status ini tidak membuktikan layanan prediksi Python sedang aktif."
       : "Belum ada hasil model run tersimpan di MongoDB.",
   };
 }
 
 module.exports = {
   createModelRun,
+  readModelMetricsArtifact,
+  syncModelMetricsFromArtifact,
   getModelRunById,
   listModelRuns,
   getLatestModelRun,

@@ -114,7 +114,7 @@ Health check tidak membuktikan bahwa collection tertentu berisi data atau bahwa 
 }
 ```
 
-`data` adalah record halaman yang diminta. `total` adalah jumlah record setelah filter dan sebelum pagination. `totalPages` dihitung dari `total / limit`; jika tidak ada record, nilainya `0`. Record pada schema Event memiliki 21 field sumber; `_id` merupakan identifier MongoDB dan `__v` dinonaktifkan pada schema.
+`data` adalah record halaman yang diminta. `total` adalah jumlah record setelah filter dan sebelum pagination. `totalPages` dihitung dari `total / limit`; jika tidak ada record, nilainya `0`. Record pada schema Event memiliki 22 field sumber, termasuk `budget` (estimasi biaya per event dalam Rupiah); `_id` merupakan identifier MongoDB dan `__v` dinonaktifkan pada schema.
 
 **Pola konsumsi frontend yang tercatat:** frontend membaca halaman berurutan menggunakan `page` dan `limit=50`, lalu melanjutkan sesuai metadata pagination. Jangan mengasumsikan satu respons halaman pertama berisi semua event. Filter perangkat/klasifikasi dan penyusunan komponen visual pada implementasi React yang dilaporkan dilakukan pada data yang sudah dimuat; jangan mengubah perilaku filter frontend hanya dengan memindahkan filter ke server tanpa pengujian kompatibilitas.
 
@@ -247,11 +247,12 @@ Endpoint berikut tetap menjadi bagian backend, tetapi tidak termasuk kontrak bac
 | Method | Endpoint | Fungsi dan batasan |
 |---|---|---|
 | `POST` | `/api/predict` | Endpoint prediksi bridge Express.js ke layanan Python. Menerima fitur atau event yang diproses `predictionFeatureService`; bukan endpoint untuk mengambil daftar dashboard. |
+| `POST` | `/api/realtime/ingest` | Memproses event baru dengan riwayat IP dan ML, menyimpan event beserta label prediksi terpisah, serta memperbarui blocklist internal. |
 | `POST` | `/api/realtime/test-history` | Route pengujian history/blocked-IP pada branch Aktivitas 27. Tidak menyimpan event uji ke `events`; respons memuat label/probability, `prediction_source`, `blocked_by_ip_list`, `ip_blocked`, dan `history_used`. |
 | `POST` | `/api/events/ingest` | Ingest batch event JSON; bukan cara frontend membaca daftar event. |
 | `POST` | `/api/events/import` | Import dataset CSV mentah; bukan bagian pembacaan dashboard. |
 
-Untuk `/api/realtime/test-history`, `PREDICTION_URL` harus diarahkan langsung ke endpoint Python `/predict` agar pemanggilan menggunakan model. Jika variabel tersebut kosong, source saat ini mengembalikan hasil mock (`prediction_source: "mock"`). `HISTORY_WINDOW_MINUTES` default `10`; batas waktu request pada source saat ini ditetapkan konstan `5000` ms dan bukan variabel lingkungan.
+Untuk `/api/realtime/test-history` maupun `/api/realtime/ingest`, `PREDICTION_URL` harus diarahkan langsung ke endpoint Python `/predict` agar pemanggilan menggunakan model. Jika variabel tersebut kosong atau layanan Python tidak tersedia, tidak ada hasil mock; ingestion menyimpan event dengan `prediction_status: "unavailable"`. `HISTORY_WINDOW_MINUTES` default `10`; batas waktu request pada source saat ini ditetapkan konstan `5000` ms dan bukan variabel lingkungan.
 
 ## 6. Error contract dan perilaku fallback
 
@@ -345,3 +346,13 @@ Skrip `scripts/checkApiContractActivity28.js` memeriksa secara statis keterhubun
 7. Laporan Aktivitas 27: pengujian terpadu prediction, blocked IP, log, serta batas pemanggilan `/api/blocked-ips` oleh halaman Blocked IPs.
 
 Seluruh referensi tersebut berada pada dokumen `1_merged (2).pdf` yang diberikan untuk proyek ini. Tidak ada nilai hasil pengujian baru yang diasumsikan dalam kontrak ini.
+
+## POST /api/realtime/ingest — Ingest dan prediksi event baru
+
+Endpoint ini merupakan jalur ingest real-time untuk event baru yang belum memiliki label aktual. Berbeda dari import dataset historis, endpoint menjalankan pemeriksaan IP dan layanan Python ML, menyimpan event, serta menyimpan hasil prediksi pada field terpisah.
+
+**Request body** harus memuat `click_id`, `ip_address`, `timestamp`, `click_duration`, `scroll_depth`, `mouse_movement`, `keystrokes_detected`, `click_frequency`, `time_since_last_click`, `VPN_usage`, `proxy_usage`, `device_type`, `browser`, `operating_system`, `ad_position`, dan `device_ip_reputation`. `user_id`, `referrer_url`, serta `page_url` bersifat opsional untuk event live. `is_fraudulent` bukan field wajib karena label aktual belum tentu diketahui ketika event diterima. `bot_likelihood_score` tidak diperlukan oleh model utama.
+
+**Response** mengembalikan `data` event yang tersimpan dan `prediction`. Hasil prediksi disimpan terpisah sebagai `predicted_is_fraudulent`, `prediction_probability`, `prediction_source`, dan `prediction_status`. Apabila IP sudah ada di blocklist internal, status menjadi `blocked`; apabila layanan ML tidak tersedia, event tetap disimpan dengan status `unavailable` dan tidak diberi label Valid/Fraud palsu.
+
+Jika prediksi ML menghasilkan Fraud, IP ditambahkan ke `blocked_ips` dengan `source: ml_prediction`. Entri historis yang berasal dari label dataset menggunakan `source: historical_dataset_label`, bukan prediksi ML.

@@ -9,6 +9,7 @@ const createEventRouter = require("./routes/eventRoutes");
 const createPredictionRouter = require("./routes/predictionRoutes");
 const createMonitoringRouter = require("./routes/monitoringRoutes");
 const createBlockedIPRouter = require("./routes/blockedIPRoutes");
+const createGoogleAdsRouter = require("./routes/googleAdsRoutes");
 // [Aktivitas 17 - Finkly] route dan service real-time prediction
 const createRealtimeRouter = require("./routes/realtimeRoutes");
 const realtimePredictionService = require("./services/realtimePredictionService");
@@ -53,7 +54,7 @@ function createApp(options = {}) {
         return callback(error);
       },
       methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type"],
+      allowedHeaders: ["Content-Type", "X-Google-Ads-Action-Key"],
       maxAge: 600,
       optionsSuccessStatus: 204,
     })
@@ -70,7 +71,9 @@ function createApp(options = {}) {
     });
   });
 
-  app.use("/api/events", createEventRouter(services.eventService));
+  const realtimeService = (options.services && options.services.realtimePredictionService)
+    || realtimePredictionService;
+  app.use("/api/events", createEventRouter(services.eventService, services.blockedIPService));
   app.use(
   "/api/predict",
   createPredictionRouter(services.predictionService)
@@ -84,13 +87,13 @@ function createApp(options = {}) {
     })
   );
   app.use("/api/blocked-ips", createBlockedIPRouter(services.blockedIPService));
+  app.use("/api/google-ads", createGoogleAdsRouter(services.googleAdsService));
 
   // [Aktivitas 17 - Finkly] route uji real-time prediction
   app.use(
     "/api/realtime",
     createRealtimeRouter(
-      (options.services && options.services.realtimePredictionService) ||
-        realtimePredictionService
+      realtimeService
     )
   );
 

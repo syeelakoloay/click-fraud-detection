@@ -26,6 +26,7 @@ function validPayload(overrides = {}) {
     VPN_usage: 0,
     proxy_usage: 1,
     is_fraudulent: 0,
+    budget: 2500,
     ...overrides,
   };
 }
@@ -58,6 +59,22 @@ test("dataset semantic validation accepts a valid IPv4/URL/timestamp payload", (
   assert.doesNotThrow(() => validateDatasetSemantics(validPayload()));
 });
 
+test("budget must be present and contain a non-negative Rupiah amount", () => {
+  assert.doesNotThrow(() => validateDatasetSemantics(validPayload({ budget: "2500" })));
+  assert.throws(
+    () => validateDatasetSemantics(validPayload({ budget: "" })),
+    { importCode: "INVALID_BUDGET" }
+  );
+  assert.throws(
+    () => validateDatasetSemantics(validPayload({ budget: "-100" })),
+    { importCode: "INVALID_BUDGET" }
+  );
+  assert.throws(
+    () => validateDatasetSemantics(validPayload({ budget: "not-a-number" })),
+    { importCode: "INVALID_BUDGET" }
+  );
+});
+
 test("dataset semantic validation accepts valid IPv6 and rejects invalid IP addresses", () => {
   assert.doesNotThrow(() => validateDatasetSemantics(validPayload({ ip_address: "2001:db8::1" })));
   assert.throws(
@@ -77,11 +94,20 @@ test("integer semantic validation rejects fractional values", () => {
   );
 });
 
+test("budget must be a whole Rupiah amount", () => {
+  assert.throws(
+    () => validateIntegerFields(validPayload({ budget: 2500.5 })),
+    { importCode: "INVALID_INTEGER_FIELD" }
+  );
+});
+
 test("all 5,000 source dataset rows satisfy the import-specific semantic checks", () => {
   const datasetPath = path.join(__dirname, "..", "dataset", "click_fraud_dataset.csv");
   const records = parseCsv(fs.readFileSync(datasetPath, "utf8"));
   const headers = records[0];
   assert.equal(records.length - 1, 5000);
+  assert.equal(headers.length, 22);
+  assert.ok(headers.includes("budget"));
 
   for (let index = 1; index < records.length; index += 1) {
     const cells = records[index];
@@ -97,6 +123,7 @@ test("all 5,000 source dataset rows satisfy the import-specific semantic checks"
       VPN_usage: Number(payload.VPN_usage),
       proxy_usage: Number(payload.proxy_usage),
       is_fraudulent: Number(payload.is_fraudulent),
+      budget: Number(payload.budget),
     };
     assert.doesNotThrow(() => validateIntegerFields(numbers), `validasi bilangan bulat gagal pada baris CSV ${index + 1}`);
   }

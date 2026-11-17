@@ -6,6 +6,8 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 INPUT_FILE = PROJECT_ROOT / "dataset" / "click_fraud_dataset.csv"
 OUTPUT_FILE = Path(__file__).resolve().parent / "click_fraud_features.csv"
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+BOT_SCORE_AUDIT_FILE = RESULTS_DIR / "bot_score_leakage_audit.csv"
 
 REQUIRED_COLUMNS = [
     "click_id", "timestamp", "user_id", "ip_address", "device_type",
@@ -108,6 +110,28 @@ def main() -> int:
             print(f"- {col}: {count} nilai kosong")
         return 1
 
+    # Audit bot_likelihood_score dari dataset mentah. Kolom ini tidak ikut
+    # ke fitur model karena skor memisahkan target secara sempurna pada data ini.
+    bot_scores = pd.to_numeric(df["bot_likelihood_score"], errors="coerce")
+    if bot_scores.isna().any() or not bot_scores.between(0, 1).all():
+        print("ERROR: bot_likelihood_score harus numerik dan berada pada rentang 0–1.")
+        return 1
+
+    valid_scores = bot_scores[df[TARGET] == 0]
+    fraud_scores = bot_scores[df[TARGET] == 1]
+    valid_score_max = float(valid_scores.max())
+    fraud_score_min = float(fraud_scores.min())
+    perfect_label_separation = valid_score_max < fraud_score_min
+    score_audit = pd.DataFrame([{
+        "valid_score_min": float(valid_scores.min()),
+        "valid_score_max": valid_score_max,
+        "fraud_score_min": fraud_score_min,
+        "fraud_score_max": float(fraud_scores.max()),
+        "scores_separate_target_perfectly": bool(perfect_label_separation),
+        "midpoint_boundary_for_audit_only": (valid_score_max + fraud_score_min) / 2,
+        "decision": "EXCLUDED_FROM_MAIN_MODEL_TO_AVOID_TARGET_LEAKAGE" if perfect_label_separation else "REQUIRES_PROVENANCE_REVIEW_BEFORE_USE"
+    }])
+
     # Diagnostik IP: IP mentah tetap tidak dimasukkan ke input model.
     ip_values = df["ip_address"].dropna().astype("string")
     ip_counts = ip_values.value_counts()
@@ -115,6 +139,7 @@ def main() -> int:
     repeated_ip_count = int((ip_counts > 1).sum())
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     try:
         result.to_csv(OUTPUT_FILE, index=False)
     except Exception as exc:
@@ -132,9 +157,22 @@ def main() -> int:
     print(f"Jumlah IP unik: {unique_ip_count} dari {len(df)} event")
     print(f"Jumlah nilai IP yang muncul lebih dari sekali: {repeated_ip_count}")
     print("User-agent: tidak tersedia pada dataset; tidak dibuat atau diasumsikan.")
-    print("bot_likelihood_score: tidak dimasukkan sementara karena perlu pemeriksaan data leakage.")
-    print("Identifier mentah, URL mentah, dan timestamp mentah tidak dimasukkan sebagai fitur output.")
+    print("bot_likelihood_score tidak digunakan sebagai fitur utama; kolom ini diaudit terpisah.")
+    print(f"Rentang bot score Valid : {valid_scores.min():.2f}–{valid_score_max:.2f}")
+    print(f"Rentang bot score Fraud : {fraud_score_min:.2f}–{fraud_scores.max():.2f}")
+    if perfect_label_separation:
+        print("PERINGATAN TARGET LEAKAGE: bot_likelihood_score memisahkan label Valid/Fraud secara sempurna.")
+        print("Skor tersebut dikeluarkan dari fitur model agar evaluasi tidak menjadi tinggi secara semu.")
+    else:
+        print("Asal-usul bot_likelihood_score perlu diverifikasi sebelum kolom ini dapat dipakai sebagai fitur.")
+    print("Identifier mentah, URL mentah, timestamp mentah, dan bot_likelihood_score tidak dimasukkan sebagai fitur output.")
     print(f"Nilai kosong pada output: {int(result.isna().sum().sum())}")
+    try:
+        score_audit.to_csv(BOT_SCORE_AUDIT_FILE, index=False)
+    except Exception as exc:
+        print(f"ERROR: Audit bot score gagal disimpan: {exc}")
+        return 1
+    print(f"Audit bot score disimpan di: {BOT_SCORE_AUDIT_FILE}")
     print(f"File output disimpan di: {OUTPUT_FILE}")
     return 0
 

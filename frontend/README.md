@@ -33,6 +33,8 @@ Vite berjalan pada `http://localhost:5173`. Secara default, request `/api/*` dan
 
 Label `is_fraudulent` pada event adalah label dataset (`0 = Valid`, `1 = Fraud`), bukan prediksi real-time dari ML. Status `NO_MODEL_RUN_RECORDED` juga bukan health check layanan Python.
 
+Halaman hero menjelaskan fungsi dan alur kerja sistem tanpa menampilkan angka ringkasan dashboard. Pada Traffic overview, titik Valid disambungkan oleh garis biru dan titik Fraud oleh garis merah untuk memperlihatkan perubahan jumlah event antarinterval. Garis putus-putus amber menunjukkan UCL Fraud 3-sigma. Ikon bantuan di panel membuka modal yang menjelaskan arti garis dan interpretasi titik di atas atau di bawah threshold.
+
 ## Pengujian frontend
 
 ```bash

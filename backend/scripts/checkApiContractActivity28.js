@@ -12,6 +12,10 @@ function read(relativePath) {
 
 const files = {
   app: read("src/app.js"),
+  server: read("src/server.js"),
+  realtimeRoute: read("src/routes/realtimeRoutes.js"),
+  realtimeService: read("src/services/realtimePredictionService.js"),
+  datasetImportController: read("src/controllers/datasetImportController.js"),
   eventsRoute: read("src/routes/eventRoutes.js"),
   monitoringRoute: read("src/routes/monitoringRoutes.js"),
   blockedRoute: read("src/routes/blockedIPRoutes.js"),
@@ -46,6 +50,14 @@ const checks = [
   ["Contract distinguishes risk signals from blocked IP", /Risk signals[\s\S]*?blocked IP/.test(files.contract)],
   ["Contract documents metrics-not-health distinction", files.contract.includes("health check layanan Python") && files.contract.includes("NO_MODEL_RUN_RECORDED")],
   ["Contract documents the Activity 27 real-time route boundary", files.contract.includes("/api/realtime/test-history") && files.contract.includes("Tidak menyimpan event uji")],
+  ["Dataset import accepts runtime schema fields beyond the CSV columns", /DATASET_HEADERS\.every\(\(field\) => schemaFieldSet\.has\(field\)\)/.test(files.datasetImportController)],
+  ["Dataset import reconciles historical Fraud IPs even when all rows are duplicates", /Reconcile the internal blocklist[\s\S]*?syncHistoricalFraudIPs\(\)/.test(files.datasetImportController)],
+  ["Server startup synchronizes model metrics and historical Blocked IPs", /syncModelMetricsFromArtifact\(\)[\s\S]*?syncHistoricalFraudIPs\(\)/.test(files.server)],
+  ["Model evaluation metrics are loaded from the saved CSV artifact", /model_metrics\.csv/.test(files.modelRunService) && /findOneAndUpdate/.test(files.modelRunService)],
+  ["Real-time ingest route is exposed", /router\.post\(\"\/ingest\"/.test(files.realtimeRoute)],
+  ["Real-time ingest persists model prediction separately from actual label", /createEvent\(\{[\s\S]*?predicted_is_fraudulent:[\s\S]*?prediction_probability:/.test(files.realtimeService)],
+  ["Prediction service does not return a fabricated result when URL is missing", /PREDICTION_URL belum dikonfigurasi/.test(files.realtimeService) && !/prediction_source:\s*\"mock\"/.test(files.realtimeService)],
+  ["API contract documents the real-time ingest endpoint", files.contract.includes("POST /api/realtime/ingest")],
 ];
 
 let failures = 0;
