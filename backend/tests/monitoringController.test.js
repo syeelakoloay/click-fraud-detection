@@ -60,6 +60,9 @@ test("GET metrics hanya mengembalikan field evaluasi model yang tersedia", async
   const controller = createMonitoringController({
     monitoringService: { async getMonitoringSnapshot() { return {}; }, async getTrafficByTime() { return {}; } },
     modelRunService: {
+      readWebRobotMetricsArtifact() {
+        return { test_metrics: { accuracy: 0.9808 }, fraud_click_classifier: false };
+      },
       async getModelStatus() {
         return {
           status: "RESULT_RECORDED",
@@ -91,6 +94,9 @@ test("GET metrics hanya mengembalikan field evaluasi model yang tersedia", async
     roc_auc: 0.4949,
   });
   assert.equal(res.body.status, "RESULT_RECORDED");
+  assert.deepEqual(res.body.web_robot_detection, {
+    test_metrics: { accuracy: 0.9808 }, fraud_click_classifier: false,
+  });
   assert.match(res.body.note, /tidak membuktikan layanan prediksi sedang aktif/i);
 });
 

@@ -59,14 +59,14 @@ test("dataset semantic validation accepts a valid IPv4/URL/timestamp payload", (
   assert.doesNotThrow(() => validateDatasetSemantics(validPayload()));
 });
 
-test("budget must be present and contain a non-negative Rupiah amount", () => {
-  assert.doesNotThrow(() => validateDatasetSemantics(validPayload({ budget: "2500" })));
+test("budget must be present and contain a non-negative USD amount with cent precision", () => {
+  assert.doesNotThrow(() => validateDatasetSemantics(validPayload({ budget: "0.14" })));
   assert.throws(
     () => validateDatasetSemantics(validPayload({ budget: "" })),
     { importCode: "INVALID_BUDGET" }
   );
   assert.throws(
-    () => validateDatasetSemantics(validPayload({ budget: "-100" })),
+    () => validateDatasetSemantics(validPayload({ budget: "-0.10" })),
     { importCode: "INVALID_BUDGET" }
   );
   assert.throws(
@@ -94,10 +94,11 @@ test("integer semantic validation rejects fractional values", () => {
   );
 });
 
-test("budget must be a whole Rupiah amount", () => {
+test("budget accepts cents and rejects precision below one cent", () => {
+  assert.doesNotThrow(() => validateDatasetSemantics(validPayload({ budget: "0.14" })));
   assert.throws(
-    () => validateIntegerFields(validPayload({ budget: 2500.5 })),
-    { importCode: "INVALID_INTEGER_FIELD" }
+    () => validateDatasetSemantics(validPayload({ budget: "0.145" })),
+    { importCode: "INVALID_BUDGET" }
   );
 });
 

@@ -55,7 +55,7 @@ const checks = [
   ["Server startup synchronizes model metrics and historical Blocked IPs", /syncModelMetricsFromArtifact\(\)[\s\S]*?syncHistoricalFraudIPs\(\)/.test(files.server)],
   ["Model evaluation metrics are loaded from the saved CSV artifact", /model_metrics\.csv/.test(files.modelRunService) && /findOneAndUpdate/.test(files.modelRunService)],
   ["Real-time ingest route is exposed", /router\.post\(\"\/ingest\"/.test(files.realtimeRoute)],
-  ["Real-time ingest persists model prediction separately from actual label", /createEvent\(\{[\s\S]*?predicted_is_fraudulent:[\s\S]*?prediction_probability:/.test(files.realtimeService)],
+  ["Real-time ingest timestamps accepted events and persists prediction separately from actual label", /received_at:[\s\S]*?createEvent\(acceptedEvent\)[\s\S]*?update\.predicted_is_fraudulent[\s\S]*?updateEventByClickId\(createdEvent\.click_id, update\)/.test(files.realtimeService)],
   ["Prediction service does not return a fabricated result when URL is missing", /PREDICTION_URL belum dikonfigurasi/.test(files.realtimeService) && !/prediction_source:\s*\"mock\"/.test(files.realtimeService)],
   ["API contract documents the real-time ingest endpoint", files.contract.includes("POST /api/realtime/ingest")],
 ];

@@ -12,6 +12,11 @@ const eventSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    received_at: {
+      type: Date,
+      required: false,
+      index: true,
+    },
     user_id: {
       type: String,
       required: false,
@@ -22,6 +27,25 @@ const eventSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+    },
+    campaign_id: {
+      type: String,
+      required: false,
+      trim: true,
+      match: /^\d{1,20}$/,
+    },
+    ad_id: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 64,
+    },
+    user_agent: {
+      type: String,
+      required: false,
+      default: "",
+      trim: true,
+      maxlength: 512,
     },
     device_type: {
       type: String,
@@ -129,19 +153,25 @@ const eventSchema = new mongoose.Schema(
     prediction_source: {
       type: String,
       required: false,
-      enum: ["model", "ip_list"],
+      enum: ["model", "ip_list", "behavioral_rule"],
     },
     prediction_status: {
       type: String,
       required: false,
-      enum: ["completed", "blocked", "unavailable"],
+      enum: ["completed", "blocked", "unavailable", "shadow_only"],
+    },
+    detection_reason: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 256,
     },
     budget: {
       type: Number,
       min: 0,
       validate: {
-        validator: Number.isInteger,
-        message: "budget harus berupa bilangan bulat Rupiah.",
+        validator: (value) => Number.isFinite(value) && Number(value.toFixed(2)) === value,
+        message: "budget harus berupa nominal USD dengan maksimal dua angka desimal.",
       },
     },
   },
@@ -156,9 +186,11 @@ const eventSchema = new mongoose.Schema(
 
 // ip_address: used for event lookup in the IP mitigation context.
 eventSchema.index({ ip_address: 1 });
+eventSchema.index({ campaign_id: 1, timestamp: -1 });
 
 // timestamp: supports time-based traffic monitoring queries.
 // This is a technical design decision derived from the dashboard requirement.
 eventSchema.index({ timestamp: -1 });
+eventSchema.index({ ip_address: 1, received_at: -1 });
 
 module.exports = mongoose.model("Event", eventSchema);

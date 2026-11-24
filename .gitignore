@@ -10,3 +10,6 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local Python virtual environments
+**/.venv/

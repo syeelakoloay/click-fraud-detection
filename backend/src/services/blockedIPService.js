@@ -9,22 +9,54 @@ const {
 
 async function addBlockedIP(ipAddress, options = {}) {
   const normalizedIP = assertNonEmptyString(ipAddress, "ipAddress");
-  const source = ["historical_dataset_label", "ml_prediction", "manual"].includes(options.source)
-    ? options.source
-    : "manual";
+  const allowedSources = ["historical_dataset_label", "ml_prediction", "behavioral_rule", "manual"];
+  const source = allowedSources.includes(options.source) ? options.source : "manual";
   const now = new Date();
+  const existing = await BlockedIP.findOne({ ip_address: normalizedIP }).lean().exec();
 
-  // A model detection has priority over a historical dataset-derived entry.
-  const update = source === "ml_prediction"
-    ? { $set: { source, last_seen_at: now } }
-    : { $setOnInsert: { ip_address: normalizedIP, source, blocked_at: now } };
+  if (existing) {
+    // Never overwrite an administrator's manual decision with an automated source.
+    if (existing.source === "manual") return existing;
+    const updated = await BlockedIP.findOneAndUpdate(
+      { ip_address: normalizedIP },
+      { $set: {
+        source: source === "manual" ? "manual" : source,
+        last_seen_at: now,
+        ...(options.detectionReason ? { detection_reason: String(options.detectionReason).slice(0, 256) } : {}),
+      } },
+      { new: true, runValidators: true }
+    ).exec();
+    return toPlainObject(updated);
+  }
 
   const document = await BlockedIP.findOneAndUpdate(
     { ip_address: normalizedIP },
-    update,
+    { $setOnInsert: {
+      ip_address: normalizedIP,
+      source,
+      blocked_at: now,
+      ...(options.detectionReason ? { detection_reason: String(options.detectionReason).slice(0, 256) } : {}),
+    } },
     { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
   ).exec();
   return toPlainObject(document);
+}
+
+async function updateGoogleAdsExclusion(ipAddress, update = {}) {
+  const normalizedIP = assertNonEmptyString(ipAddress, "ipAddress");
+  const allowedStatuses = ["not_configured", "pending", "excluded", "skipped", "failed"];
+  const status = allowedStatuses.includes(update.status) ? update.status : "failed";
+  const values = {
+    google_ads_exclusion_status: status,
+    ...(update.campaignId ? { google_ads_campaign_id: String(update.campaignId) } : {}),
+    ...(status === "excluded" ? { google_ads_exclusion_at: new Date(), google_ads_exclusion_error: "" } : {}),
+    ...(update.error ? { google_ads_exclusion_error: String(update.error).slice(0, 512) } : {}),
+  };
+  return BlockedIP.findOneAndUpdate(
+    { ip_address: normalizedIP },
+    { $set: values },
+    { new: true, runValidators: true }
+  ).lean().exec();
 }
 
 async function getBlockedIP(ipAddress) {
@@ -33,7 +65,8 @@ async function getBlockedIP(ipAddress) {
 }
 
 async function isIPBlocked(ipAddress) {
-  return Boolean(await getBlockedIP(ipAddress));
+  const record = await getBlockedIP(ipAddress);
+  return Boolean(record && record.source !== "historical_dataset_label");
 }
 
 async function listBlockedIPs(options = {}) {
@@ -119,6 +152,7 @@ async function syncHistoricalFraudIPs() {
 
 module.exports = {
   addBlockedIP,
+  updateGoogleAdsExclusion,
   getBlockedIP,
   isIPBlocked,
   listBlockedIPs,

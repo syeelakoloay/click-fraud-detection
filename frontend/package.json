@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:activity16": "node --test tests/activity16Traffic.test.js",
-    "test:activity28": "node --test tests/activity28Api.test.js"
+    "test:activity28": "node --test tests/activity28Api.test.js",
+    "test:currency": "node --test tests/currency.test.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

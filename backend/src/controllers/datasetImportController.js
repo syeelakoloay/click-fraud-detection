@@ -8,7 +8,7 @@ const {
   validateIntegerFields,
 } = require("../utils/datasetImportValidation");
 
-// The canonical source dataset contains 22 columns, including per-event budget in Rupiah.
+// The canonical source dataset contains 22 columns, including per-event budget in USD.
 // Keep this contract aligned with dataset/click_fraud_dataset.csv and the Event schema.
 const DATASET_HEADERS = Object.freeze([
   "click_id",

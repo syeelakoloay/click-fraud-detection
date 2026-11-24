@@ -119,6 +119,8 @@ Periksa Network tab dashboard. Khusus halaman **Blocked IPs**, pastikan UI mengi
 - `docs/API_CONTRACT_AKTIVITAS_28.md` - kontrak endpoint final dan pemetaan komponen dashboard.
 - `docs/Laporan_Aktivitas_28_Final.docx` - laporan Aktivitas 28 dengan addendum integrasi frontend-backend dan hasil verifikasi snapshot workspace.
 - `backend/docs/` - dokumentasi teknis backend, termasuk salinan kontrak dan laporan Markdown.
+- `docs/RUNBOOK_WINDOWS.md` - langkah command Windows PowerShell.
+- `docs/VERIFICATION_REPORT.md` - ringkasan tes yang sudah lulus dan batas verifikasi.
 
 
 ## 8. Profil Dataset dan Cara Kerja ML
@@ -142,7 +144,7 @@ Setelah training selesai, jalankan layanan model pada terminal tersendiri dengan
 
 Halaman hero hanya menjelaskan tujuan dan alur kerja sistem; halaman pembuka tidak menampilkan ringkasan angka hasil dashboard. Grafik Traffic overview menghubungkan seluruh titik Valid dengan garis trafik biru dan seluruh titik Fraud dengan garis trafik merah, sehingga perubahan naik/turun terlihat antarbucket. Garis putus-putus amber adalah **UCL 3-sigma p-chart** yang mengikuti baseline fraud rate dan total klik setiap interval. Titik Fraud di atas ambang perlu ditinjau; titik di bawah/tepat pada ambang masih dalam variasi statistik historis, tetapi bukan jaminan bebas fraud. Ikon bantuan pada judul Traffic overview membuka modal yang menjelaskan garis trafik, threshold, dan cara interpretasinya. Threshold merupakan indikator monitoring agregat, bukan pengganti keputusan klasifikasi ML.
 
-## Bootstrap hasil model dan Blocked IPs
+## 9. Bootstrap hasil model dan Blocked IPs
 
 Saat backend dijalankan, API otomatis menyinkronkan metrik dari `backend/ml/results/model_metrics.csv` ke collection `model_runs` dan membangun blocklist historis dari event dengan label aktual Fraud ke collection `blocked_ips`. Pada penggunaan pertama, pastikan 5.000 event pada `backend/dataset/click_fraud_dataset.csv` sudah diimpor ke MongoDB melalui `POST /api/events/import`. Dari root workspace, jalankan perintah berikut setelah backend aktif:
 
@@ -150,14 +152,14 @@ Saat backend dijalankan, API otomatis menyinkronkan metrik dari `backend/ml/resu
 curl.exe -X POST "http://localhost:5000/api/events/import" -H "Content-Type: text/csv" --data-binary "@backend/dataset/click_fraud_dataset.csv"
 ```
 
-Jika database masih kosong, respons yang diharapkan adalah `successCount: 5000`. Pada dataset saat ini terdapat 1.241 IP unik dengan label Fraud; sinkronisasi akan membuat entri historis untuk IP tersebut di collection `blocked_ips`. Jika data sudah ada, restart backend agar proses bootstrap menyinkronkan ulang collection tersebut, termasuk ketika import ulang hanya menemukan `click_id` duplikat. Sinkronisasi juga berjalan setelah setiap permintaan import berhasil diproses. Prosesnya idempoten. Entri historis diberi sumber `historical_dataset_label`, sedangkan IP yang diblokir dari prediksi runtime diberi sumber `ml_prediction`.
+Jika database masih kosong, respons yang diharapkan adalah `successCount: 5000`. Pada dataset saat ini terdapat 1.241 IP unik dengan label Fraud; sinkronisasi akan membuat entri historis untuk IP tersebut di collection `blocked_ips`. Jika data sudah ada, restart backend agar proses bootstrap menyinkronkan ulang collection tersebut, termasuk ketika import ulang hanya menemukan `click_id` duplikat. Sinkronisasi juga berjalan setelah setiap permintaan import berhasil diproses. Prosesnya idempoten. Entri historis diberi sumber `historical_dataset_label`, sedangkan IP yang terpicu oleh rule burst runtime diberi sumber `behavioral_rule`. Sumber `ml_prediction` hanya digunakan jika model kelak memenuhi quality gate dan izin auto-block diaktifkan.
 
-Untuk memproses klik baru secara real-time, kirim event lengkap ke `POST /api/realtime/ingest`. Pastikan layanan Python ML berjalan dan `PREDICTION_URL` mengarah ke `/predict`. Bila layanan ML tidak tersedia, event tetap dicatat dengan status `unavailable`; API tidak menggunakan prediksi tiruan.
+Untuk memproses klik baru secara real-time, kirim event lengkap ke `POST /api/events` atau `POST /api/realtime/ingest`. Pastikan layanan Python ML berjalan dan `PREDICTION_URL` mengarah ke `/predict`. Rule burst server tetap berjalan sebelum request ML; bila layanan ML tidak tersedia dan rule tidak terpicu, event tetap dicatat dengan status `unavailable`. API tidak menggunakan prediksi tiruan.
 
 Catatan target: metrik model yang tersedia masih di bawah target akurasi >95%. Jangan memasukkan `bot_likelihood_score` ke fitur training utama karena kolom tersebut memisahkan label dataset secara sempurna dan menimbulkan target leakage. Lihat `backend/docs/KONDISI_PENCAPAIAN_KONSEP.md` untuk rincian dan rekomendasi. Blocklist internal juga belum sama dengan pemblokiran otomatis pada platform iklan eksternal; hal tersebut memerlukan akses API resmi provider.
 
 
-## 9. Dataset terverifikasi dan pelatihan model tambahan
+## 10. Dataset terverifikasi dan pelatihan model tambahan
 
 Pipeline training dibedakan berdasarkan unit label; hasil model antar-pipeline tidak boleh diperlakukan sebagai metrik yang sama:
 
@@ -181,7 +183,7 @@ Untuk model click-level, file `click_fraud_verified.csv` tidak disediakan karena
 
 Untuk model risiko campaign-day, sambungkan Google Ads, sinkronkan minimal 90–180 hari jika tersedia, lalu latih ulang. Model membentuk fitur hanya dari metrik hari sebelumnya dan menguji hasil secara kronologis 60/20/20 (train/validation/test); hari yang tidak memiliki record tepat sehari sebelumnya tidak dipakai. Threshold dipilih pada validation dan hasil akhir dilaporkan pada test. Data Google Ads berlabel `metrics.invalid_clicks` bersifat agregat kampanye-hari, bukan data click-level atau stream real-time. TalkingData `is_attributed` juga bukan label fraud.
 
-## 10. Google Ads API OAuth dan mitigasi eksternal
+## 11. Google Ads API OAuth dan mitigasi eksternal
 
 Integrasi resmi Google Ads REST API v26 telah ditambahkan. Konfigurasi OAuth refresh token, Customer ID, Manager Customer ID opsional, API access level, action key, dan langkah pengujian dijelaskan di [`backend/docs/GOOGLE_ADS_ML_SETUP.md`](backend/docs/GOOGLE_ADS_ML_SETUP.md).
 
@@ -194,4 +196,56 @@ Ringkasan kemampuan:
 - Mutasi dinonaktifkan secara default. Sistem tidak melakukan pause otomatis berdasarkan model. Data invalid clicks merupakan laporan agregat tanggal; sinkronisasi dilakukan manual/batch, jadi integrasi ini belum menjamin mitigasi otomatis seketika atau perubahan anggaran harian otomatis.
 - Google Ads invalid-click metrics tidak menyertakan IP individual; jangan mengubah angka agregat itu menjadi daftar IP.
 
-Untuk akses baru per November 2026, akses API Google Ads dikelola melalui Google Cloud project; ikuti halaman API Overview dan persyaratan akses Test/produksi terkini. Jangan menambahkan developer token lama ke kode atau ZIP. Akses produksi, OAuth user, Customer ID, dan tindakan iklan memerlukan konfigurasi/persetujuan langsung dari pemilik akun. Untuk OAuth external app berstatus Testing dengan scope Google Ads, refresh token dapat kedaluwarsa setelah 7 hari; gunakan status publikasi/produksi dan penuhi verifikasi Google untuk koneksi jangka panjang.
+Google Ads API pada versi kebijakan yang berlaku sejak 9 September 2026 tidak lagi memerlukan Developer Token pada request baru. Akses ditautkan pada project Google Cloud/OAuth dan access level yang diberikan Google. Simpan OAuth client secret dan refresh token hanya di `backend/.env`, jangan di kode atau ZIP. Akses produksi dan tindakan iklan tetap memerlukan konfigurasi serta izin langsung dari pemilik akun. Refresh token OAuth external app berstatus Testing dapat kedaluwarsa; ikuti kebijakan publikasi/verifikasi Google untuk koneksi jangka panjang. Rujuk [Developer Token policy](https://developers.google.com/google-ads/api/docs/api-policy/developer-token) dan [API access levels](https://developers.google.com/google-ads/api/docs/access-levels).
+
+
+## 12. Dataset MarTech tambahan dan Google Ads campaign target
+
+Dataset CPA asli tidak diubah. Salinan MarTech 500.000 baris berlabel disimpan terpisah pada `backend/ml/datasets/martech/train.csv`. Dataset ini dinyatakan simulated/anonymized oleh dokumentasi sumber dan belum memiliki file lisensi di arsip yang diterima; periksa izin sebelum redistribusi. Training benchmark dapat dijalankan dengan `npm run train:martech`. Hasil model MarTech disimpan terpisah dan tidak dipromosikan ke prediksi CPA runtime.
+
+Google Ads `.env.example` sudah diisi dengan Customer ID `3425120099`, Campaign ID `3426120099`, dan nama campaign `advertising` sesuai informasi pemilik proyek. OAuth credentials tetap kosong dan tidak boleh dikirimkan melalui chat. Mutasi dan auto-exclusion tetap OFF secara default. Event yang akan dikecualikan harus memiliki `campaign_id` yang sama dengan campaign target; tanpa campaign mapping sistem tidak mengubah campaign eksternal.
+
+
+## 13. Windows PowerShell: Python ML tanpa Activate.ps1
+
+Jika PowerShell menampilkan `running scripts is disabled` saat menjalankan `backend\.venv\Scripts\Activate.ps1`, itu adalah Execution Policy Windows, bukan error pada Python atau proyek. Virtual environment tetap dapat digunakan tanpa aktivasi. Dari root folder proyek, jalankan:
+
+```powershell
+py -3 -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+backend\.venv\Scripts\python.exe -m pip install -r backend\ml\requirements.txt
+backend\.venv\Scripts\python.exe backend\ml\prediction_api.py
+```
+
+Jika venv sudah dibuat, lewati perintah `py -3 -m venv ...`. Untuk shortcut, jalankan `scripts\setup-ml-env.cmd` satu kali dan gunakan `scripts\start-ml-api.cmd` untuk memulai Python ML API. File `.cmd` tersebut tidak memanggil `Activate.ps1`.
+
+Jangan mengubah Execution Policy `LocalMachine` hanya untuk menjalankan proyek ini. Jika tetap ingin aktivasi di sesi saat ini, opsi sementara adalah `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`; scope ini berlaku sampai sesi PowerShell ditutup.
+
+
+
+## 14. Model Web Robot, live refresh, dan status target
+
+Proyek memakai model pendamping **Web Robot Detection** dari gabungan `simple_features.csv` dan `semantic_features.csv`. Artefak evaluasi mencatat accuracy **98,08%** pada 13.471 sesi holdout, precision Robot 95,46%, recall Robot 94,96%, F1 Robot 95,21%, dan ROC-AUC 99,70%. Model ini memprediksi label **Human/Robot pada sesi web**, bukan label **Valid/Fraud pada klik iklan**. Dataset Twitter tidak digunakan dalam model ini. Dashboard menampilkan kedua cakupan model secara terpisah melalui `GET /api/monitoring/metrics`.
+
+Model utama CPA tetap dievaluasi untuk label Valid/Fraud. Evaluasi terakhir yang tersimpan mencatat accuracy 75,10% dan precision/recall/F1 Fraud 0%; karena itu model CPA tetap `shadow_only` dan tidak boleh mengaktifkan auto-block ML. Angka 98,08% Web Robot tidak boleh dipakai untuk menyatakan target akurasi fraud klik iklan telah tercapai.
+
+Dashboard memperbarui 100 event terbaru setiap 10 detik dan memperbarui daftar IP ketika halaman Blocked IPs sedang dibuka. Penilaian burst memakai `received_at` yang ditetapkan server, bukan hanya timestamp klien. Event diserialisasi per alamat IP di proses Express yang sama agar burst berurutan tidak saling melewatkan. Baris `historical_dataset_label` adalah referensi label Fraud historis, **bukan block aktif**. Block aktif berasal dari rule perilaku, tindakan manual, atau model yang telah memenuhi quality gate.
+
+Rule mitigasi internal default: 10 klik dari user teridentifikasi dengan User-Agent sama dalam 5 detik, atau 20 klik anonim dengan User-Agent sama dan indikator jaringan berisiko dalam 5 detik. Ketika rule terpenuhi, IP dicatat ke blocklist internal. Google Ads IP exclusion hanya dicoba bila OAuth dan campaign mapping benar, nama/channel campaign lolos verifikasi, serta kedua flag `GOOGLE_ADS_MUTATIONS_ENABLED` dan `GOOGLE_ADS_AUTO_EXCLUDE_ENABLED` diaktifkan secara eksplisit. Kedua flag tetap `false` secara default. IP harus merupakan IPv4 publik; Google Ads membatasi sampai 500 IP/CIDR per campaign.
+
+**Batas hasil yang diharapkan:** dashboard dan polling real-time serta rule mitigation internal dapat diuji secara lokal. Model sesi Web Robot melampaui 95%, tetapi ini bukan click-fraud classifier. Google Ads exclusion adalah aksi produksi yang memerlukan OAuth/access level dan campaign yang benar; akun test tidak mengukur uang yang benar-benar dihemat. Dengan bukti dan dataset yang tersedia saat ini, ketiga hasil tidak boleh dinyatakan sepenuhnya terpenuhi untuk deteksi Fraud klik iklan dan penghematan anggaran produksi.
+
+## 15. Command dan runbook Windows
+
+Lihat [`docs/RUNBOOK_WINDOWS.md`](docs/RUNBOOK_WINDOWS.md) untuk urutan command setup, training, menjalankan empat service, tes burst real-time, dan verifikasi endpoint.
+
+
+## 16. Keamanan endpoint ingestion dan mitigasi real-time
+
+Endpoint penulisan event pada `/api/events` dan `/api/realtime/ingest` dapat dikunci dengan `EVENT_INGESTION_API_KEY`. Di production, kunci wajib diisi; middleware menolak konfigurasi production yang kosong (503) dan request tanpa header `X-Event-Ingestion-Key` yang benar (401). Jangan pernah menaruh kunci tersebut di React/browser. Simpan pada server-side collector. Collector harus memperoleh alamat IP pengunjung dari koneksi/proxy tepercaya; jangan mempercayai alamat IP atau `X-Forwarded-For` yang dapat ditulis langsung oleh klien. CORS bukan mekanisme autentikasi.
+
+Rule burst memakai waktu `received_at` dari server dan serialisasi per IP dalam satu proses Express. Ini memberi mitigasi near-real-time pada instance backend tersebut; untuk banyak instance/server diperlukan shared lock/rate-limit store seperti Redis agar seluruh instance melihat urutan event yang sama. Dashboard polling 10 detik (events) dan 15 detik (blocklist), bukan WebSocket.
+
+## Tampilan Anggaran
+
+Kolom `budget` merupakan nilai anggaran dummy per klik. Nilai numerik pada dataset dan database dipertahankan persis seperti data yang tersedia; tidak dilakukan konversi kurs maupun perubahan nominal. Perubahan hanya mengatur format tampilannya sebagai dollar. Simbol `$` ditempatkan langsung di depan angka, koma digunakan sebagai pemisah ribuan, dan titik sebagai pemisah desimal/sen (contoh: `$1,250.75`). Format ini diterapkan pada dashboard dan tampilan nominal biaya Google Ads. Nilai budget bukan tagihan aktual platform iklan.

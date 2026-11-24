@@ -1,0 +1,59 @@
+{
+  "model_type": "LightGBMClassifier pipeline",
+  "model_scope": "social_media_account_bot_benchmark",
+  "source_dataset": "Twitter Human Bots Detection",
+  "label_mapping": {
+    "0": "human account",
+    "1": "bot account"
+  },
+  "rows_total": 37438,
+  "rows_train": 29950,
+  "rows_test": 7488,
+  "feature_columns": [
+    "default_profile",
+    "default_profile_image",
+    "favourites_count",
+    "followers_count",
+    "friends_count",
+    "geo_enabled",
+    "lang",
+    "statuses_count",
+    "verified",
+    "average_tweets_per_day",
+    "account_age_days"
+  ],
+  "excluded_columns": [
+    "",
+    "Unnamed: 0",
+    "created_at",
+    "description",
+    "id",
+    "location",
+    "profile_background_image_url",
+    "profile_image_url",
+    "screen_name",
+    "account_type"
+  ],
+  "test_metrics": {
+    "accuracy": 0.8799412393162394,
+    "balanced_accuracy": 0.8524315993904663,
+    "precision_bot": 0.8533868092691622,
+    "recall_bot": 0.7706237424547284,
+    "f1_bot": 0.8098963840135335,
+    "roc_auc": 0.9382131686782699,
+    "rows_test": 7488,
+    "confusion_matrix": [
+      [
+        4674,
+        329
+      ],
+      [
+        570,
+        1915
+      ]
+    ]
+  },
+  "automation_eligible": false,
+  "fraud_click_classifier": false,
+  "reason": "Unit analisis adalah akun Twitter, bukan klik atau sesi iklan. Benchmark ini tidak terhubung ke API prediksi ClickGuard."
+}

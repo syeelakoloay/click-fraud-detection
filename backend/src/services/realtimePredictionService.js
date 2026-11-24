@@ -1,164 +1,73 @@
 "use strict";
 
-// ============================================================
-// Aktivitas 17 - Real-time prediction & mitigasi IP
-// PIC: Finkly
-//
-// Tugas file ini:
-//   1. Ambil riwayat klik dari IP yang sama (lewat eventService milik Syeela)
-//   2. Ringkas riwayat menjadi angka
-//   3. Bungkus event baru + ringkasan riwayat
-//   4. Kirim ke model ML dan terima label + probabilitas
-//
-// File ini TIDAK menyimpan event dan TIDAK memblokir IP.
-// Penyimpanan/pemblokiran dikerjakan di Aktivitas 20 dan 23.
-// ============================================================
+const { createEvent, updateEventByClickId, findEventsByIP } = require("./eventService");
+const { addBlockedIP, getBlockedIP, updateGoogleAdsExclusion } = require("./blockedIPService");
+const googleAdsService = require("./googleAdsService");
+const {
+  isRoutablePublicIPv4,
+  isPredictionReadyEvent,
+  getEventReceivedTime,
+  isActiveBlockRecord,
+  evaluateBurstRisk,
+  validateRealtimeEvent,
+} = require("./realtimeDetectionRules");
 
-const { createEvent, findEventsByIP } = require("./eventService");
-
-const { addBlockedIP, getBlockedIP } = require("./blockedIPService");
-
-// Lama jendela riwayat (menit). Bisa diubah lewat .env.
 const HISTORY_WINDOW_MINUTES = Number(process.env.HISTORY_WINDOW_MINUTES) || 10;
-
-// Maksimal event riwayat yang dibaca (listEvents membatasi maks. 100).
 const HISTORY_LIMIT = 100;
-
-// Endpoint prediction Python. URL kosong berarti prediksi tidak tersedia;
-// sistem tidak boleh mengembalikan hasil tiruan sebagai keputusan ML.
 const PREDICTION_URL = process.env.PREDICTION_URL || "";
-const PREDICTION_TIMEOUT_MS = 5000;
-
-// Field mentah event yang dipakai model Bryan (ml/feature_engineering.py).
-// click_hour dan click_day_of_week TIDAK ada di sini karena dihitung dari timestamp.
+const PREDICTION_TIMEOUT_MS = Number(process.env.PREDICTION_TIMEOUT_MS || 5000);
 const MODEL_RAW_FIELDS = [
-  "click_duration",
-  "scroll_depth",
-  "mouse_movement",
-  "keystrokes_detected",
-  "click_frequency",
-  "time_since_last_click",
-  "VPN_usage",
-  "proxy_usage",
-  "device_type",
-  "browser",
-  "operating_system",
-  "ad_position",
-  "device_ip_reputation",
+  "click_duration", "scroll_depth", "mouse_movement", "keystrokes_detected",
+  "click_frequency", "time_since_last_click", "VPN_usage", "proxy_usage",
+  "device_type", "browser", "operating_system", "ad_position", "device_ip_reputation",
 ];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const ipIngestionQueues = new Map();
 
-const DAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-
-// ------------------------------------------------------------
-// Validasi event masuk
-// ------------------------------------------------------------
-function validateEvent(event) {
-  if (!event || typeof event !== "object" || Array.isArray(event)) {
-    throw new TypeError("Event harus berupa object.");
-  }
-  const required = [
-    "click_id",
-    "ip_address",
-    "timestamp",
-    // field mentah yang dibutuhkan untuk membentuk feature model
-    ...MODEL_RAW_FIELDS,
-  ];
-  for (const field of required) {
-    if (
-      event[field] === undefined ||
-      event[field] === null ||
-      event[field] === ""
-    ) {
-      throw new TypeError(`Field ${field} wajib diisi.`);
-    }
-  }
-  if (Number.isNaN(new Date(event.timestamp).getTime())) {
-    throw new TypeError("timestamp bukan tanggal yang valid.");
-  }
+function runInIpQueue(ipAddress, task) {
+  const key = String(ipAddress).trim();
+  const previous = ipIngestionQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(task);
+  ipIngestionQueues.set(key, current);
+  return current.finally(() => {
+    if (ipIngestionQueues.get(key) === current) ipIngestionQueues.delete(key);
+  });
 }
 
-// ------------------------------------------------------------
-// Langkah 1: ambil riwayat klik dari IP yang sama
-// Memakai findEventsByIP milik Syeela (hasil urut dari yang terbaru).
-// Yang dihitung hanya klik SEBELUM event ini, dalam jendela waktu tertentu.
-// ------------------------------------------------------------
+
+function validateEvent(event) {
+  return validateRealtimeEvent(event);
+}
+
 async function getHistoryByIp(event, windowMinutes = HISTORY_WINDOW_MINUTES) {
   const result = await findEventsByIP(event.ip_address, {
-    limit: HISTORY_LIMIT,
-    sortBy: "timestamp",
-    sortOrder: "desc",
+    limit: HISTORY_LIMIT, sortBy: "received_at", sortOrder: "desc",
   });
-
-  const current = new Date(event.timestamp).getTime();
+  const current = new Date(getEventReceivedTime(event)).getTime();
   const start = current - windowMinutes * 60 * 1000;
-
-  return result.data.filter((h) => {
-    const t = new Date(h.timestamp).getTime();
-    return h.click_id !== event.click_id && t <= current && t >= start;
+  return result.data.filter((item) => {
+    const timestamp = new Date(getEventReceivedTime(item)).getTime();
+    return item.click_id !== event.click_id && timestamp <= current && timestamp >= start;
   });
 }
 
-// ------------------------------------------------------------
-// Langkah 2: ringkas riwayat menjadi angka
-// ------------------------------------------------------------
-function summarizeHistory(
-  history,
-  currentTimestamp,
-  windowMinutes = HISTORY_WINDOW_MINUTES,
-) {
+function summarizeHistory(history, currentTimestamp, windowMinutes = HISTORY_WINDOW_MINUTES) {
   const clickCount = history.length;
-  const fraudCount = history.filter((h) => (h.predicted_is_fraudulent ?? h.is_fraudulent) === 1).length;
-
-  // history[0] adalah klik terbaru sebelum event ini
+  const fraudCount = history.filter((item) => (item.predicted_is_fraudulent ?? item.is_fraudulent) === 1).length;
   let secondsSinceLast = null;
   if (clickCount > 0) {
-    const last = new Date(history[0].timestamp).getTime();
-    secondsSinceLast = (new Date(currentTimestamp).getTime() - last) / 1000;
+    secondsSinceLast = (
+      new Date(currentTimestamp).getTime() -
+      new Date(getEventReceivedTime(history[0])).getTime()
+    ) / 1000;
   }
-
-  return {
-    window_minutes: windowMinutes,
-    history_click_count: clickCount,
-    history_fraud_count: fraudCount,
-    history_seconds_since_last: secondsSinceLast,
-  };
+  return { window_minutes: windowMinutes, history_click_count: clickCount, history_fraud_count: fraudCount, history_seconds_since_last: secondsSinceLast };
 }
 
-// ------------------------------------------------------------
-// Langkah 3: bungkus event + ringkasan riwayat
-//
-// "features" = 15 input model, SAMA PERSIS dengan feature_engineering.py:
-//   numerik    : click_hour, click_duration, scroll_depth, mouse_movement,
-//                keystrokes_detected, click_frequency, time_since_last_click,
-//                VPN_usage, proxy_usage
-//   kategorikal: click_day_of_week, device_type, browser, operating_system,
-//                ad_position, device_ip_reputation
-// click_hour dan click_day_of_week dihitung dari timestamp (zona waktu UTC).
-//
-// Tidak dikirim sebagai feature (mengikuti Bryan):
-//   bot_likelihood_score (risiko data leakage), ip_address mentah,
-//   user_id, URL, timestamp mentah.
-//
-// "history" = konteks riwayat IP. Model yang sekarang BELUM memakainya
-// sebagai feature; dipakai untuk logging dan aturan mitigasi (Aktivitas 23).
-// ------------------------------------------------------------
 function buildPayload(event, historySummary) {
-  const when = new Date(event.timestamp);
-
+  const when = new Date(getEventReceivedTime(event));
   return {
-    event_meta: {
-      click_id: event.click_id,
-      ip_address: event.ip_address,
-      timestamp: event.timestamp,
-    },
+    event_meta: { click_id: event.click_id, ip_address: event.ip_address, timestamp: event.timestamp },
     features: {
       click_hour: when.getUTCHours(),
       click_duration: event.click_duration,
@@ -180,151 +89,258 @@ function buildPayload(event, historySummary) {
   };
 }
 
-// ------------------------------------------------------------
-// Langkah 4: kirim ke model, terima { label, probability }
-// ------------------------------------------------------------
+
 async function sendToModel(payload) {
-  // Jangan pernah mengembalikan prediksi tiruan sebagai hasil ML.
   if (!PREDICTION_URL) {
     const error = new Error("PREDICTION_URL belum dikonfigurasi; hasil prediksi ML tidak tersedia.");
     error.status = 503;
+    error.code = "ML_PREDICTION_NOT_CONFIGURED";
     throw error;
   }
-
-  // Model hanya menerima 15 feature, jadi hanya "features" yang dikirim.
   const response = await fetch(PREDICTION_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload.features),
     signal: AbortSignal.timeout(PREDICTION_TIMEOUT_MS),
   });
-
+  const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(
-      `Endpoint prediction merespons error ${response.status}: ${
-        (err.error && err.error.message) || ""
-      }`,
-    );
+    const error = new Error(result.error || `Endpoint prediction merespons HTTP ${response.status}.`);
+    error.status = response.status >= 500 ? 503 : response.status;
+    error.code = "ML_PREDICTION_FAILED";
+    throw error;
   }
-
-  const result = await response.json();
   const label = Number(result.prediction);
-  const fraudProbability = Number(
-    result.probabilities && result.probabilities.Fraud,
-  );
-
-  // Periksa jawaban model sebelum dipakai.
-  if (
-    ![0, 1].includes(label) ||
-    !Number.isFinite(fraudProbability) ||
-    fraudProbability < 0 ||
-    fraudProbability > 1
-  ) {
+  const fraudProbability = Number(result.probabilities && result.probabilities.Fraud);
+  if (![0, 1].includes(label) || !Number.isFinite(fraudProbability) || fraudProbability < 0 || fraudProbability > 1) {
     throw new Error("Respons endpoint prediction tidak valid.");
   }
-
-  return { label, probability: fraudProbability, source: "model" };
+  return {
+    label,
+    probability: fraudProbability,
+    source: "model",
+    automationEligible: result.automation_eligible === true,
+    modelReadiness: result.model_readiness || null,
+  };
 }
 
-// ------------------------------------------------------------
-// Fungsi utama (dipakai ulang di Aktivitas 20 dan 23)
-// ------------------------------------------------------------
-async function predictWithHistory(event) {
-  validateEvent(event);
+async function persistGoogleAdsResult(ipAddress, result) {
+  if (!result || !result.status || result.status === "skipped") {
+    await updateGoogleAdsExclusion(ipAddress, { status: "skipped", campaignId: result?.campaignId });
+  } else if (result.status === "excluded") {
+    await updateGoogleAdsExclusion(ipAddress, { status: "excluded", campaignId: result.campaignId });
+  } else {
+    await updateGoogleAdsExclusion(ipAddress, { status: "failed", campaignId: result.campaignId, error: result.reason || result.error || "Google Ads exclusion tidak berhasil." });
+  }
+}
 
-  // Aktivitas 25: IP yang sudah ada di daftar blokir tidak perlu diprediksi lagi.
-  const blockedEntry = await getBlockedIP(event.ip_address);
-  if (blockedEntry) {
+async function tryGoogleAdsExclusion(ipAddress, source, campaignId) {
+  try {
+    const result = await googleAdsService.autoExcludeBlockedIp(ipAddress, { source, campaignId });
+    await persistGoogleAdsResult(ipAddress, result);
+    return result;
+  } catch (error) {
+    await persistGoogleAdsResult(ipAddress, { status: "failed", reason: error.message }).catch(() => {});
+    return { status: "failed", reason: error.message, code: error.code || "GOOGLE_ADS_ERROR" };
+  }
+}
+
+async function predictWithHistory(event, options = {}) {
+  validateEvent(event);
+  const existingBlocked = await getBlockedIP(event.ip_address);
+  const historicalReferenceMatch = existingBlocked?.source === "historical_dataset_label";
+  const activelyBlocked = isActiveBlockRecord(existingBlocked);
+  if (activelyBlocked) {
     return {
       click_id: event.click_id,
       ip_address: event.ip_address,
-      label: null,
+      label: 1,
       probability: null,
       prediction_source: "ip_list",
+      prediction_status: "blocked",
       blocked_by_ip_list: true,
       ip_blocked: true,
+      detection_reason: existingBlocked.detection_reason || "ip_already_in_active_blocklist",
+      historical_reference_match: false,
       history_used: null,
+      google_ads_mitigation: { status: existingBlocked.google_ads_exclusion_status || "not_configured" },
     };
   }
 
   const history = await getHistoryByIp(event);
-  const summary = summarizeHistory(history, event.timestamp);
-  const payload = buildPayload(event, summary);
-  const result = await sendToModel(payload);
-
-  // Aktivitas 23: IP dimasukkan ke daftar blokir bila hasil prediksi fraud.
-  // addBlockedIP bersifat idempoten: IP yang sama tidak tercatat dua kali.
-  let ipBlocked = false;
-  if (result.label === 1) {
-    await addBlockedIP(event.ip_address, { source: "ml_prediction" });
-    ipBlocked = true;
+  const summary = summarizeHistory(history, getEventReceivedTime(event));
+  const behavioralRisk = evaluateBurstRisk(event, history);
+  let modelResult = null;
+  let modelError = null;
+  if (!options.skipModel && !behavioralRisk.triggered) {
+    try {
+      modelResult = await sendToModel(buildPayload(event, summary));
+    } catch (error) {
+      modelError = error.message;
+    }
   }
+
+  const modelAutoBlockEnabled = String(process.env.REALTIME_ML_AUTOBLOCK_ENABLED || "false").toLowerCase() === "true";
+  const minFraudProbability = Number(process.env.REALTIME_ML_AUTOBLOCK_THRESHOLD || 0.99);
+  const modelBlockAllowed = Boolean(modelResult?.automationEligible && modelAutoBlockEnabled
+    && modelResult.label === 1 && modelResult.probability >= minFraudProbability);
+
+  let ipBlocked = false;
+  let predictionSource = modelResult ? "model" : null;
+  let detectionReason = null;
+  if (behavioralRisk.triggered) {
+    await addBlockedIP(event.ip_address, { source: "behavioral_rule", detectionReason: behavioralRisk.reason });
+    ipBlocked = true;
+    predictionSource = "behavioral_rule";
+    detectionReason = behavioralRisk.reason;
+  } else if (modelBlockAllowed) {
+    await addBlockedIP(event.ip_address, { source: "ml_prediction", detectionReason: "qualified_model_probability_threshold" });
+    ipBlocked = true;
+    predictionSource = "model";
+    detectionReason = "qualified_model_probability_threshold";
+  }
+
+  const googleAdsMitigation = ipBlocked
+    ? options.skipGoogleAds
+      ? { status: "deferred" }
+      : await tryGoogleAdsExclusion(event.ip_address, predictionSource, event.campaign_id)
+    : { status: "not_triggered" };
 
   return {
     click_id: event.click_id,
     ip_address: event.ip_address,
-    label: result.label, // 1 = fraud, 0 = valid
-    probability: result.probability,
-    prediction_source: result.source, // "model"
+    label: modelResult?.label ?? (behavioralRisk.triggered ? 1 : null),
+    probability: modelResult?.probability ?? null,
+    prediction_source: predictionSource || "model",
+    prediction_status: modelResult ? (modelResult.automationEligible ? "completed" : "shadow_only") : "unavailable",
     blocked_by_ip_list: false,
     ip_blocked: ipBlocked,
+    detection_reason: detectionReason,
+    behavioral_risk: behavioralRisk,
+    model_automation_eligible: modelResult?.automationEligible === true,
+    model_readiness: modelResult?.modelReadiness || null,
+    model_error: modelError,
+    historical_reference_match: historicalReferenceMatch,
     history_used: summary,
+    google_ads_mitigation: googleAdsMitigation,
   };
 }
 
-
-/**
- * Production ingestion path for one new click event.
- * It runs the ML/IP-list check, stores the event with a separate prediction
- * field (ground-truth is_fraudulent remains optional), and preserves the event
- * even when the Python model is temporarily unavailable.
- */
 async function ingestAndPredict(event) {
   validateEvent(event);
 
-  let prediction;
-  try {
-    prediction = await predictWithHistory(event);
-  } catch (error) {
+  // Keep the critical rule path short and serialized by IP. ML scoring happens
+  // after this lock is released so a slow model/network call cannot make clicks
+  // fall outside the five-second burst window.
+  const decision = await runInIpQueue(event.ip_address, async () => {
+    const receivedAt = new Date();
+    const acceptedEvent = {
+      ...event,
+      user_agent: String(event.user_agent || "").slice(0, 512),
+      received_at: receivedAt,
+    };
+    const createdEvent = await createEvent(acceptedEvent);
+    const prediction = await predictWithHistory(acceptedEvent, { skipModel: true, skipGoogleAds: true });
+    return { acceptedEvent, createdEvent, prediction };
+  });
+
+  const { acceptedEvent, createdEvent } = decision;
+  let prediction = decision.prediction;
+  const ruleTriggered = prediction.prediction_source === "behavioral_rule";
+  const blockedByList = prediction.blocked_by_ip_list === true;
+
+  // Execute external campaign mutation outside the per-IP critical section.
+  if (ruleTriggered) {
     prediction = {
-      label: null,
-      probability: null,
-      prediction_source: "model",
-      prediction_status: "unavailable",
-      blocked_by_ip_list: false,
-      ip_blocked: false,
-      message: error.status === 503
-        ? error.message
-        : "Layanan prediksi tidak dapat memproses event ini.",
+      ...prediction,
+      google_ads_mitigation: await tryGoogleAdsExclusion(
+        acceptedEvent.ip_address, "behavioral_rule", acceptedEvent.campaign_id
+      ),
     };
   }
 
-  const blockedByList = prediction.blocked_by_ip_list === true;
-  const hasModelPrediction = [0, 1].includes(prediction.label);
-  const storedEvent = await createEvent({
-    ...event,
-    predicted_is_fraudulent: hasModelPrediction ? prediction.label : blockedByList ? 1 : undefined,
-    prediction_probability: Number.isFinite(prediction.probability) ? prediction.probability : undefined,
-    prediction_source: blockedByList ? "ip_list" : hasModelPrediction ? "model" : undefined,
-    prediction_status: blockedByList ? "blocked" : hasModelPrediction ? "completed" : "unavailable",
-  });
+  // Behavioral rules run before this network call. For non-blocked traffic,
+  // retain the CPA model in shadow mode and persist its result separately.
+  if (!prediction.ip_blocked && !blockedByList && !ruleTriggered) {
+    try {
+      const modelResult = await sendToModel(buildPayload(acceptedEvent, prediction.history_used));
+      prediction = {
+        ...prediction,
+        label: modelResult.label,
+        probability: modelResult.probability,
+        prediction_source: "model",
+        prediction_status: modelResult.automationEligible ? "completed" : "shadow_only",
+        model_automation_eligible: modelResult.automationEligible,
+        model_readiness: modelResult.modelReadiness,
+        model_error: null,
+      };
 
+      const modelBlockEnabled = String(process.env.REALTIME_ML_AUTOBLOCK_ENABLED || "false").toLowerCase() === "true";
+      const modelThreshold = Number(process.env.REALTIME_ML_AUTOBLOCK_THRESHOLD || 0.99);
+      if (modelResult.automationEligible && modelBlockEnabled && modelResult.label === 1
+        && modelResult.probability >= modelThreshold) {
+        await addBlockedIP(acceptedEvent.ip_address, {
+          source: "ml_prediction",
+          detectionReason: "qualified_model_probability_threshold",
+        });
+        prediction = {
+          ...prediction,
+          ip_blocked: true,
+          prediction_status: "blocked",
+          detection_reason: "qualified_model_probability_threshold",
+          google_ads_mitigation: await tryGoogleAdsExclusion(
+            acceptedEvent.ip_address, "model", acceptedEvent.campaign_id
+          ),
+        };
+      }
+    } catch (error) {
+      prediction = {
+        ...prediction,
+        prediction_source: "model",
+        prediction_status: "unavailable",
+        model_error: error.message,
+      };
+    }
+  }
+
+  const activeBlock = prediction.ip_blocked === true;
+  const modelPrediction = prediction.prediction_source === "model"
+    && [0, 1].includes(prediction.label);
+  const update = {
+    prediction_status: activeBlock ? "blocked" : prediction.prediction_status || "unavailable",
+    prediction_source: blockedByList
+      ? "ip_list"
+      : ruleTriggered
+        ? "behavioral_rule"
+        : modelPrediction
+          ? "model"
+          : undefined,
+    detection_reason: prediction.detection_reason || undefined,
+  };
+  if (blockedByList || ruleTriggered) update.predicted_is_fraudulent = 1;
+  else if (modelPrediction) update.predicted_is_fraudulent = prediction.label;
+  if (Number.isFinite(prediction.probability)) {
+    update.prediction_probability = prediction.probability;
+  }
+
+  const updatedEvent = await updateEventByClickId(createdEvent.click_id, update);
   return {
-    data: storedEvent,
-    prediction: {
-      ...prediction,
-      prediction_status: blockedByList ? "blocked" : hasModelPrediction ? "completed" : "unavailable",
-    },
-    accepted_for_processing: !blockedByList,
+    data: updatedEvent || { ...createdEvent, ...update },
+    prediction,
+    accepted_for_processing: !activeBlock,
   };
 }
 
 module.exports = {
+  validateEvent,
+  isPredictionReadyEvent,
+  runInIpQueue,
   getHistoryByIp,
   summarizeHistory,
   buildPayload,
+  evaluateBurstRisk,
   sendToModel,
   predictWithHistory,
   ingestAndPredict,
+  isRoutablePublicIPv4,
 };

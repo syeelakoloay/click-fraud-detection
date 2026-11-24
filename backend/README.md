@@ -4,7 +4,7 @@
 
 Repository ini menggabungkan pengolahan data dan klasifikasi *click fraud* dengan layanan backend untuk menyimpan event, menyediakan API, dan mendukung monitoring. Bagian data dan machine learning berisi proses *feature engineering*, analisis karakteristik data, pelatihan model klasifikasi, serta evaluasi model. Bagian backend menggunakan Node.js, Express.js, Mongoose, dan MongoDB untuk mengelola data event, hasil model, informasi IP yang diblokir, dan metrik monitoring.
 
-Sumber data utama adalah `dataset/click_fraud_dataset.csv`, yang terdiri atas 5.000 event dengan 22 kolom, termasuk `budget` sebagai estimasi biaya per klik dalam Rupiah (data dummy). Kolom `is_fraudulent` berfungsi sebagai label klasifikasi, dengan nilai `0` untuk non-fraud dan nilai `1` untuk fraud sesuai dataset. Artefak pengolahan data serta hasil pelatihan yang tersedia di repository merupakan hasil proses sebelumnya dan perlu ditinjau kembali sebelum digunakan dalam eksperimen atau keputusan operasional baru.
+Sumber data utama adalah `dataset/click_fraud_dataset.csv`, yang terdiri atas 5.000 event dengan 22 kolom, termasuk `budget` sebagai nilai anggaran dummy per klik. Kolom `is_fraudulent` berfungsi sebagai label klasifikasi, dengan nilai `0` untuk non-fraud dan nilai `1` untuk fraud sesuai dataset. Artefak pengolahan data serta hasil pelatihan yang tersedia di repository merupakan hasil proses sebelumnya dan perlu ditinjau kembali sebelum digunakan dalam eksperimen atau keputusan operasional baru. Nilai numerik pada kolom `budget` dipertahankan sebagaimana tersimpan. Frontend menampilkan nominal tersebut dengan simbol `$` dan format `$1,250.75` tanpa konversi kurs atau perubahan nilai. Tidak diperlukan migrasi database untuk perubahan format tampilan.
 
 ## Ruang Lingkup Sistem
 
@@ -34,7 +34,9 @@ Endpoint utama yang tersedia meliputi:
 | `GET` | `/api/monitoring/metrics` | Membaca metrik dari model run yang tersimpan. |
 | `GET` | `/api/monitoring/traffic` | Membaca agregasi event berdasarkan rentang waktu. |
 | `GET` | `/api/blocked-ips` | Membaca daftar IP yang tercatat sebagai blocked. |
-| `POST` | `/api/predict` | Meneruskan fitur ke layanan Python ML dan mengembalikan hasil prediksi. |
+| `POST` | `/api/predict` | Meneruskan fitur ke layanan Python ML dan mengembalikan hasil prediksi CPA Valid/Fraud. |
+| `POST` | `/api/predict/martech` | Menjalankan benchmark terpisah pada payload MarTech. |
+| `POST` | `/api/predict/web-robot` | Mengklasifikasikan fitur agregat sesi web menjadi Human/Robot; bukan label Fraud/Valid klik. |
 | `POST` | `/api/realtime/ingest` | Memproses event baru dengan pengecekan blocklist dan prediksi ML, lalu menyimpan event serta hasil prediksi. |
 | `POST` | `/api/realtime/test-history` | Route pengujian prediksi dengan riwayat IP; event uji tidak disimpan ke collection `events`. |
 
@@ -45,9 +47,9 @@ Repository backend pada branch `finkly/task27-integration` sudah memuat dua jalu
 1. `POST /api/predict` merupakan endpoint prediksi utama. Backend menyiapkan 15 fitur apabila body berisi event dengan `timestamp`, lalu meneruskan fitur ke layanan Python ML menggunakan `ML_API_URL` (default `http://127.0.0.1:8000`) dan mengembalikan respons layanan Python.
 2. `POST /api/realtime/test-history` merupakan route pengujian alur real-time dengan riwayat IP. Service memvalidasi event, memeriksa apakah IP sudah diblokir, mengambil riwayat IP dalam jendela waktu yang dikonfigurasi, dan mengirim 15 fitur ke endpoint Python. Apabila hasil model berlabel fraud (`label = 1`), IP dimasukkan ke collection `blocked_ips`; event berikutnya dari IP yang sama dikenali melalui daftar blokir sebelum model dipanggil.
 
-Route `/api/realtime/test-history` **tidak menyimpan event uji ke collection `events`** dan hanya dipertahankan untuk kompatibilitas pengujian. Untuk pipeline event baru, gunakan `POST /api/realtime/ingest`: event disimpan ke collection `events`, hasil prediksi ML disimpan terpisah dari label aktual, dan IP dengan prediksi Fraud ditambahkan ke blocklist internal. Jika `PREDICTION_URL` tidak dikonfigurasi atau layanan Python tidak tersedia, event tetap disimpan dengan `prediction_status: "unavailable"`; sistem tidak membuat hasil mock.
+Route `/api/realtime/test-history` **tidak menyimpan event uji ke collection `events`** dan hanya dipertahankan untuk kompatibilitas pengujian. Untuk event baru, `POST /api/events` mempertahankan kontrak respons `{ data }` dan menjalankan deteksi jika payload berisi seluruh 13 fitur runtime; metadata hasilnya ditambahkan sebagai `detection`. `POST /api/realtime/ingest` tetap menjadi endpoint eksplisit untuk ingestion+deteksi. Hasil prediksi ML disimpan terpisah dari label aktual. Model CPA sekarang berada dalam mode `shadow_only` sampai artefak metrik melewati quality gate; prediksi ML tidak memblokir IP ketika gate gagal. Aturan burst perilaku yang konservatif dapat memblokir secara internal dan mencoba pengecualian Google Ads hanya bila konfigurasi mutasi/auto-exclude aktif dan event memiliki `campaign_id` yang sama dengan campaign target.
 
-Daftar IP dibaca melalui `GET /api/blocked-ips`. Schema `BlockedIP` menyimpan `ip_address`, sumber pencatatan (`historical_dataset_label`, `ml_prediction`, atau `manual`), waktu pemblokiran, waktu terakhir terlihat, serta jumlah event historis sumber bila tersedia. Pemblokiran pada alur real-time mengikuti hasil label model `1` dan belum menggunakan ambang probabilitas tambahan. Karena laporan evaluasi model baseline mencatat performa deteksi yang masih lemah, hasil prediksi tidak boleh diperlakukan sebagai bukti final fraud atau satu-satunya dasar keputusan operasional.
+Daftar IP dibaca melalui `GET /api/blocked-ips`. Schema `BlockedIP` menyimpan sumber (`historical_dataset_label`, `ml_prediction`, `behavioral_rule`, atau `manual`), waktu, alasan deteksi, serta status sinkronisasi Google Ads. Auto-block berbasis ML mensyaratkan model readiness yang lulus ambang accuracy >95%, precision/recall/F1 Fraud ≥90%, dan ROC-AUC ≥90%; model saat ini belum lulus. Aturan burst juga bukan bukti identitas Fraud dan perlu dikalibrasi pada traffic produksi sebelum mutasi eksternal diaktifkan.
 
 Detail pemetaan endpoint ke kebutuhan dashboard React, parameter, struktur respons, kode error, dan batas integrasi tercantum pada `docs/API_CONTRACT_AKTIVITAS_28.md`. Catatan implementasi serta bukti pengujian Aktivitas 27 tetap dirujuk untuk riwayat pekerjaan; nilai uji pada laporan tersebut bukan jaminan bahwa data atau status layanan akan sama pada sesi lain.
 ## Alur Kerja Tingkat Tinggi
@@ -111,30 +113,61 @@ Server pengembangan secara default berjalan pada `http://localhost:5000`. Endpoi
 
 ## Menjalankan Alur Machine Learning
 
-Pasang paket Python yang diperlukan pada lingkungan Python yang digunakan.
+### Windows PowerShell: gunakan virtual environment tanpa aktivasi
+
+Pada Windows, aktivasi `backend\.venv\Scripts\Activate.ps1` dapat ditolak oleh PowerShell Execution Policy. **Aktivasi tidak wajib.** Jalankan interpreter virtual environment secara langsung; cara ini tidak memerlukan perubahan Execution Policy dan tidak mengubah konfigurasi keamanan Windows. Jalankan perintah berikut dari root workspace (`click-fraud-detection`):
+
+```powershell
+py -3 -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+backend\.venv\Scripts\python.exe -m pip install -r backend\ml\requirements.txt
+backend\.venv\Scripts\python.exe backend\ml\prediction_api.py
+```
+
+Jika `backend\.venv\Scripts\python.exe` sudah ada, lewati baris pertama. Untuk mempermudah, Anda juga dapat menjalankan `scripts\setup-ml-env.cmd` satu kali, kemudian `scripts\start-ml-api.cmd` setiap kali ingin memulai layanan Python. Kedua file `.cmd` tersebut tidak menjalankan `Activate.ps1`.
+
+Alternatif (opsional) jika Anda memang ingin mengaktifkan venv di sesi PowerShell saat ini, jalankan `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` lalu aktivasi. Perubahan scope `Process` hanya berlaku untuk sesi PowerShell tersebut dan hilang setelah sesi ditutup. Gunakan pilihan ini hanya bila kebijakan organisasi tidak mengunci eksekusi skrip.
+
+### Linux/macOS
 
 ```bash
-python -m pip install pandas scikit-learn joblib
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install --upgrade pip
+backend/.venv/bin/python -m pip install -r backend/ml/requirements.txt
+backend/.venv/bin/python backend/ml/prediction_api.py
 ```
+
+Untuk menjalankan skrip analisis/training, gunakan interpreter virtual environment yang sama. Pada Windows, gunakan `backend\.venv\Scripts\python.exe`; pada Linux/macOS, gunakan `backend/.venv/bin/python`. Jangan bergantung pada `python` global karena paket dapat terpasang di interpreter yang berbeda.
 
 Jalankan skrip sesuai urutan berikut untuk membentuk fitur, menghasilkan analisis, melatih model, dan memeriksa feature importance.
 
-```bash
-python ml/feature_engineering.py
-python ml/analyze_features.py
-python ml/train_model.py
-python ml/diagnose_model.py
+```powershell
+# Jalankan dari root workspace Windows
+backend\.venv\Scripts\python.exe backend\ml\feature_engineering.py
+backend\.venv\Scripts\python.exe backend\ml\analyze_features.py
+backend\.venv\Scripts\python.exe backend\ml\train_model.py
+backend\.venv\Scripts\python.exe backend\ml\diagnose_model.py
+
+# Model pendamping sesi Web Robot (label Human/Robot, bukan click-fraud)
+backend\.venv\Scripts\python.exe backend\ml\train_web_robot_model.py
+
+# Benchmark akun Twitter (label human/bot, tidak terhubung ke API live)
+backend\.venv\Scripts\python.exe backend\ml\train_twitter_bot_benchmark.py
+
+# Smoke test endpoint Web Robot (prediction_api.py harus sedang berjalan)
+backend\.venv\Scripts\python.exe backend\ml\test_web_robot_api.py
 ```
 
 Proses feature engineering menghasilkan `ml/click_fraud_features.csv` serta audit rentang skor bot di `ml/results/bot_score_leakage_audit.csv`. Analisis menyimpan perbandingan fitur numerik dan tingkat fraud pada kategori, sedangkan pelatihan menyimpan model dan metrik evaluasi ke `ml/results/`. Skrip diagnosis membaca model tersimpan dan menghasilkan daftar feature importance.
 
 Setelah model berhasil dilatih, jalankan layanan prediksi pada terminal terpisah dari folder `backend`:
 
-```bash
-python ml/prediction_api.py
+```powershell
+# Jalankan dari root workspace Windows
+backend\.venv\Scripts\python.exe backend\ml\prediction_api.py
 ```
 
-Layanan Python memuat `ml/results/random_forest_model.joblib` saat proses dimulai dan melayani `GET /health` serta `POST /predict` pada `http://127.0.0.1:8000`. Backend Express meneruskan 15 fitur yang sama melalui `ML_API_URL`; ingestion real-time memakai `PREDICTION_URL`. Restart layanan Python setiap kali model dilatih ulang. Jika layanan tidak aktif atau URL tidak dikonfigurasi, event baru tetap disimpan dengan status `unavailable`, bukan diberi hasil prediksi mock.
+Layanan Python memuat model CPA utama dan, bila artefaknya tersedia, benchmark LightGBM MarTech serta model Web Robot. Endpoint `GET /health` menampilkan readiness ketiganya. `POST /predict` tetap menerima skema 15 fitur CPA; `POST /predict/martech` memakai skema MarTech; dan `POST /predict/web-robot` menerima 33 fitur numerik yang diagregasi pada tingkat sesi web. Backend Express meneruskan ketiganya melalui `/api/predict`, `/api/predict/martech`, dan `/api/predict/web-robot`. Model Web Robot menghasilkan label Human/Robot, bukan Valid/Fraud, dan selalu `automation_eligible: false`. Fitur sesi tidak dibentuk otomatis dari satu event oleh alur `/api/events`, sehingga endpoint ini hanya digunakan ketika sistem pengumpul log menyediakan agregat sesi. Model Web Robot tidak dihubungkan ke auto-block atau tindakan Google Ads. Restart layanan Python setelah model dilatih ulang. Jika layanan tidak aktif, event tetap disimpan dengan status `unavailable`, bukan diberi hasil prediksi mock.
 
 ## Pemeriksaan dan Pengujian
 
@@ -168,7 +201,7 @@ Label `is_fraudulent` yang tersedia pada dataset digunakan untuk pelatihan dan e
 
 ## Dokumentasi Tambahan
 
-Folder `docs/` berisi catatan desain, kontrak endpoint Aktivitas 28, serta panduan untuk menjalankan dan memverifikasi backend. Baca dokumen yang relevan sebelum mengubah struktur data, endpoint, atau skenario tes. README ini menjelaskan gambaran repository secara keseluruhan dan tidak menggantikan spesifikasi teknis pada dokumen terkait.
+Folder `docs/` berisi catatan desain, kontrak endpoint Aktivitas 28, serta panduan untuk menjalankan dan memverifikasi backend. Penjelasan dataset Web Robot dan Twitter, metrik terpisah, serta batas integrasinya tersedia di `docs/INTEGRASI_DATASET_WEB_ROBOT_TWITTER.md`. Baca dokumen yang relevan sebelum mengubah struktur data, endpoint, atau skenario tes. README ini menjelaskan gambaran repository secara keseluruhan dan tidak menggantikan spesifikasi teknis pada dokumen terkait.
 
 
 ## Catatan dataset dan pencegahan target leakage
@@ -181,7 +214,7 @@ Model utama menggunakan 15 fitur dari waktu, perilaku klik, perangkat, browser, 
 
 `npm start` menyinkronkan `ml/results/model_metrics.csv` ke MongoDB collection `model_runs`, serta menyinkronkan IP dari event dengan label aktual Fraud ke collection `blocked_ips`. Proses sinkronisasi dijalankan kembali setelah import CSV atau batch ingestion dan bersifat idempoten. Sumber tiap IP disimpan sebagai `historical_dataset_label` atau `ml_prediction`.
 
-Untuk event baru yang belum memiliki label aktual, gunakan `POST /api/realtime/ingest`. Layanan Python pada `PREDICTION_URL` harus aktif. Event tetap tersimpan jika ML tidak tersedia, tetapi statusnya `unavailable`; tidak ada prediksi mock yang dikembalikan.
+Untuk event baru yang belum memiliki label aktual, gunakan `POST /api/events` (jika seluruh fitur runtime lengkap) atau `POST /api/realtime/ingest`. Sertakan `campaign_id: "3426120099"` hanya bila klik tersebut memang berasal dari campaign `advertising`. Header User-Agent diterima backend dan disimpan terpisah. Event tetap disimpan saat layanan ML tidak tersedia; tidak ada prediksi mock yang dikembalikan.
 
 
 ## Dataset terverifikasi dan Google Ads API
@@ -202,3 +235,37 @@ npm run train:fdma-publisher
 npm run train:verified-click
 npm run train:google-ads
 ```
+
+
+## Update integrasi MarTech dan Google Ads (23 November 2026)
+
+### Dataset tambahan MarTech
+
+- Dataset CPA asli `dataset/click_fraud_dataset.csv` tetap dipertahankan dan tidak ditimpa.
+- Dataset tambahan tersimpan di `ml/datasets/martech/train.csv` (500.000 baris berlabel). Sumber mendeskripsikannya sebagai data simulasi/anonymized dari challenge advertising click fraud; makna beberapa fitur disamarkan.
+- Label MarTech: `0 = Normal`, `1 = Fraud/cheating`. `test1.csv` tidak disertakan karena tidak diperlukan untuk training dan tidak memiliki label; `Best.csv` adalah prediksi submission, bukan ground truth.
+- Model MarTech LightGBM berada pada namespace terpisah, artefak `ml/results/martech_lightgbm_model.txt`, dan hanya tersedia sebagai benchmark. Jangan menggunakannya untuk memblokir event CPA.
+- Jalankan `npm run train:martech` dari root atau `npm run train:martech` dari `backend`. Training menggunakan split kronologis 70/15/15; feature selection dan kategori dipelajari dari train saja; `sid`, indeks, dan label tidak menjadi fitur.
+- Hasil test terbaru tersimpan di `ml/results/martech_model_metrics.json`. Nilai yang dapat direproduksi pada ZIP ini: accuracy 88,136%, precision Fraud 86,967%, recall Fraud 88,923%, F1 Fraud 87,934%, ROC-AUC 94,031%, PR-AUC 93,046% (75.000 test rows; threshold dipilih pada validation). Angka ini belum memenuhi target accuracy >95%.
+- Repository sumber tidak menyertakan dokumen lisensi dataset. Simpan arsip dan dokumentasi sumber; verifikasi izin sebelum redistribusi/publikasi.
+
+### Google Ads test account dan campaign target
+
+Konfigurasi default proyek sudah memuat Customer ID `3425120099`, Campaign ID `3426120099`, dan nama campaign `advertising` pada `backend/.env.example`. ID ini adalah konfigurasi yang diberikan pemilik proyek dan tetap harus diverifikasi lewat read-only API setelah OAuth disiapkan. Jangan memasukkan OAuth Client Secret atau refresh token ke chat atau repository.
+
+Google Ads auto-exclusion memiliki dua sakelar SAFE-OFF: `GOOGLE_ADS_MUTATIONS_ENABLED=false` dan `GOOGLE_ADS_AUTO_EXCLUDE_ENABLED=false`. Setelah autentikasi read-only berhasil, campaign ID dan nama campaign cocok, serta pengujian test-account disetujui, administrator dapat mengaktifkannya pada `backend/.env`. Event yang ingin memicu pengecualian wajib menyertakan `campaign_id` yang sama persis dengan `3426120099`; event tanpa campaign mapping hanya dapat menghasilkan mitigasi internal. Alamat yang dikirim otomatis dibatasi ke IPv4 publik tunggal. Campaign channel tertentu mungkin tidak mendukung IP exclusion pada level campaign; service memeriksa tipe campaign sebelum melakukan mutasi.
+
+Contoh tambahan pada event baru:
+
+```json
+{
+  "click_id": "click-unique-001",
+  "campaign_id": "3426120099",
+  "ip_address": "8.8.8.8",
+  "timestamp": "2026-11-23T10:00:00.000Z"
+}
+```
+
+Contoh tersebut hanya potongan field; seluruh field event dan 13 fitur runtime yang diwajibkan tetap harus dikirim. `user_agent` dapat diambil backend dari HTTP request header.
+
+Test account dapat membuktikan autentikasi dan penerimaan perubahan konfigurasi, tetapi tidak menayangkan iklan dan tidak mempunyai biaya aktual. Karena itu, test account tidak dapat membuktikan jumlah biaya aktual yang dihemat. Untuk bukti pengurangan belanja aktual diperlukan pengujian terkontrol pada campaign produksi dengan persetujuan pemilik akun dan data biaya/klik yang sah. Metrik `metrics.invalid_clicks` Google Ads merupakan agregat pelaporan, bukan stream per klik atau daftar IP individu.

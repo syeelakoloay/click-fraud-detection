@@ -88,6 +88,8 @@ Health check tidak membuktikan bahwa collection tertentu berisi data atau bahwa 
       "timestamp": "<ISO-8601>",
       "user_id": "<user-id>",
       "ip_address": "<ip-address>",
+      "campaign_id": "3426120099",
+      "user_agent": "<HTTP User-Agent>",
       "device_type": "Desktop",
       "browser": "Chrome",
       "operating_system": "Windows",
@@ -114,7 +116,7 @@ Health check tidak membuktikan bahwa collection tertentu berisi data atau bahwa 
 }
 ```
 
-`data` adalah record halaman yang diminta. `total` adalah jumlah record setelah filter dan sebelum pagination. `totalPages` dihitung dari `total / limit`; jika tidak ada record, nilainya `0`. Record pada schema Event memiliki 22 field sumber, termasuk `budget` (estimasi biaya per event dalam Rupiah); `_id` merupakan identifier MongoDB dan `__v` dinonaktifkan pada schema.
+`data` adalah record halaman yang diminta. `total` adalah jumlah record setelah filter dan sebelum pagination. `totalPages` dihitung dari `total / limit`; jika tidak ada record, nilainya `0`. Record pada schema Event memiliki 22 field sumber, termasuk `budget` (estimasi biaya dummy per event); `_id` merupakan identifier MongoDB dan `__v` dinonaktifkan pada schema. Nilai numerik `budget` disimpan apa adanya. Frontend hanya menerapkan format tampilan dollar tanpa mengubah nominal melalui konversi kurs.
 
 **Pola konsumsi frontend yang tercatat:** frontend membaca halaman berurutan menggunakan `page` dan `limit=50`, lalu melanjutkan sesuai metadata pagination. Jangan mengasumsikan satu respons halaman pertama berisi semua event. Filter perangkat/klasifikasi dan penyusunan komponen visual pada implementasi React yang dilaporkan dilakukan pada data yang sudah dimuat; jangan mengubah perilaku filter frontend hanya dengan memindahkan filter ke server tanpa pengujian kompatibilitas.
 
@@ -155,6 +157,8 @@ Bucket dihitung pada timezone UTC. Untuk `hour`, format periode setara dengan `Y
 **Query parameter:** tidak ada parameter khusus.
 
 Jika model run tersedia, `data` dapat memuat `model_type`, `accuracy`, `precision`, `recall`, `f1_score`, dan `roc_auc`. Nilai metrik disimpan sebagai angka desimal pada rentang `0` sampai `1`. Jika belum ada model run, `data` bernilai `null` dan status `NO_MODEL_RUN_RECORDED`.
+
+Respons juga menyertakan `web_robot_detection` bila artefak `ml/results/web_robot_model_metrics.json` tersedia. Properti ini berisi evaluasi holdout model sesi Human/Robot, `model_scope: web_session_robot_detection`, `automation_eligible: false`, dan `fraud_click_classifier: false`. Ini adalah model pendamping yang terpisah dan bukan metrik Fraud/Valid klik iklan. Jika artefaknya tidak tersedia atau tidak valid, properti bernilai `null`.
 
 Contoh ketika belum ada record:
 
@@ -247,12 +251,14 @@ Endpoint berikut tetap menjadi bagian backend, tetapi tidak termasuk kontrak bac
 | Method | Endpoint | Fungsi dan batasan |
 |---|---|---|
 | `POST` | `/api/predict` | Endpoint prediksi bridge Express.js ke layanan Python. Menerima fitur atau event yang diproses `predictionFeatureService`; bukan endpoint untuk mengambil daftar dashboard. |
-| `POST` | `/api/realtime/ingest` | Memproses event baru dengan riwayat IP dan ML, menyimpan event beserta label prediksi terpisah, serta memperbarui blocklist internal. |
+| `POST` | `/api/realtime/ingest` | Memproses event baru dengan riwayat IP, ML shadow prediction dan rule burst, lalu menyimpan event/prediksi terpisah. |
+| `POST` | `/api/predict/martech` | Prediksi benchmark MarTech terpisah; tidak kompatibel dengan event CPA dan tidak boleh memicu mitigasi. |
+| `POST` | `/api/events` | Membuat satu event; bila semua fitur runtime lengkap, backend menambahkan deteksi pada respons tanpa menghilangkan properti `data`. |
 | `POST` | `/api/realtime/test-history` | Route pengujian history/blocked-IP pada branch Aktivitas 27. Tidak menyimpan event uji ke `events`; respons memuat label/probability, `prediction_source`, `blocked_by_ip_list`, `ip_blocked`, dan `history_used`. |
 | `POST` | `/api/events/ingest` | Ingest batch event JSON; bukan cara frontend membaca daftar event. |
 | `POST` | `/api/events/import` | Import dataset CSV mentah; bukan bagian pembacaan dashboard. |
 
-Untuk `/api/realtime/test-history` maupun `/api/realtime/ingest`, `PREDICTION_URL` harus diarahkan langsung ke endpoint Python `/predict` agar pemanggilan menggunakan model. Jika variabel tersebut kosong atau layanan Python tidak tersedia, tidak ada hasil mock; ingestion menyimpan event dengan `prediction_status: "unavailable"`. `HISTORY_WINDOW_MINUTES` default `10`; batas waktu request pada source saat ini ditetapkan konstan `5000` ms dan bukan variabel lingkungan.
+Untuk `/api/realtime/test-history` maupun `/api/realtime/ingest`, `PREDICTION_URL` harus diarahkan langsung ke endpoint Python `/predict`. Jika URL kosong atau Python tidak tersedia, tidak ada hasil mock; ingestion menyimpan event dengan status `unavailable`. Endpoint `/api/predict/martech` meneruskan data ke `/predict/martech` dan hanya menghasilkan benchmark terpisah. Model CPA menerima 15 fitur runtime; auto-block berbasis ML baru diizinkan jika response menyatakan `automation_eligible: true` setelah seluruh quality gate lulus. Saat ini quality gate belum lulus, sehingga prediksi ML berstatus `shadow_only`. Rule burst terpisah memeriksa jendela 5 detik dan User-Agent; rule ini perlu kalibrasi sebelum penggunaan produksi.
 
 ## 6. Error contract dan perilaku fallback
 
@@ -303,7 +309,7 @@ Frontend harus membedakan kondisi kosong dari request gagal. Status model run ju
 | Event list / Click events | `GET /api/events` | Gunakan pagination server; `is_fraudulent` tetap label dataset |
 | KPI overview yang dihitung dari event terunduh | `GET /api/events` | Gunakan satu koleksi/filter bersama jika perilaku frontend saat ini dipertahankan |
 | Traffic chart | `GET /api/monitoring/traffic` dan pemrosesan periode frontend | Perhatikan bucket UTC; jumlah bucket bukan jumlah event |
-| Model evaluation metrics | `GET /api/monitoring/metrics` | `data:null` berarti belum ada record model run, bukan Python down |
+| Model evaluation metrics | `GET /api/monitoring/metrics` | `data` berisi CPA click-level; `web_robot_detection` berisi sesi Human/Robot dan tidak boleh disamakan dengan fraud klik |
 | Health / status koneksi database | `GET /health` | Tidak menjamin data event/model run tersedia |
 | Blocked IP list aktual | `GET /api/blocked-ips` | Harus dibedakan dari VPN/proxy risk signals |
 | Snapshot gabungan (opsional) | `GET /api/monitoring/summary` | Jangan mengganti logika KPI berfilter tanpa uji kompatibilitas |
@@ -317,6 +323,7 @@ PowerShell:
 ```powershell
 Invoke-RestMethod "http://localhost:5000/health" | ConvertTo-Json -Depth 8
 Invoke-RestMethod "http://localhost:5000/api/events?page=1&limit=50" | ConvertTo-Json -Depth 8
+Invoke-RestMethod "http://localhost:5000/api/events?page=1&limit=100&sortBy=received_at&sortOrder=desc" | ConvertTo-Json -Depth 8
 Invoke-RestMethod "http://localhost:5000/api/monitoring/traffic?interval=hour" | ConvertTo-Json -Depth 8
 Invoke-RestMethod "http://localhost:5000/api/monitoring/metrics" | ConvertTo-Json -Depth 8
 Invoke-RestMethod "http://localhost:5000/api/monitoring/summary" | ConvertTo-Json -Depth 8
@@ -355,4 +362,27 @@ Endpoint ini merupakan jalur ingest real-time untuk event baru yang belum memili
 
 **Response** mengembalikan `data` event yang tersimpan dan `prediction`. Hasil prediksi disimpan terpisah sebagai `predicted_is_fraudulent`, `prediction_probability`, `prediction_source`, dan `prediction_status`. Apabila IP sudah ada di blocklist internal, status menjadi `blocked`; apabila layanan ML tidak tersedia, event tetap disimpan dengan status `unavailable` dan tidak diberi label Valid/Fraud palsu.
 
-Jika prediksi ML menghasilkan Fraud, IP ditambahkan ke `blocked_ips` dengan `source: ml_prediction`. Entri historis yang berasal dari label dataset menggunakan `source: historical_dataset_label`, bukan prediksi ML.
+Prediksi ML berlabel Fraud tidak otomatis memblokir IP selama quality gate `automation_eligible` belum lulus. Pemblokiran internal hanya dilakukan oleh rule burst yang telah memenuhi aturan konservatif atau oleh keputusan manual/admin. Sumber yang disimpan dibedakan menjadi `behavioral_rule`, `ml_prediction`, `ip_list`, atau `historical_dataset_label`. Event dapat menyimpan `user_agent` dan `campaign_id`; Google Ads hanya dipanggil jika mutasi dan auto-exclusion diaktifkan, campaign ID pada event cocok dengan target, dan IP publik lolos validasi.
+
+
+## 11. Addendum integrasi real-time, MarTech, dan Google Ads (23 November 2026)
+
+### 11.1 Jalur event utama
+
+`POST /api/events` tetap mengembalikan properti `data` yang sudah digunakan client. Jika payload berisi `click_id`, `ip_address`, `timestamp`, serta semua 13 fitur runtime, controller meneruskan event ke `realtimePredictionService.ingestAndPredict` dan menambahkan properti `detection`. Header HTTP `User-Agent` disimpan ke `user_agent` bila payload tidak mengirimkannya. Payload tanpa fitur runtime lengkap tetap menggunakan penyimpanan event biasa. `POST /api/events/ingest` dan `/api/events/import` tetap menjadi jalur batch/historical dan tidak menjalankan prediksi per baris.
+
+Untuk Google Ads, event yang akan dihubungkan dengan campaign harus menyertakan `campaign_id: "3426120099"`. Backend tidak mengasumsikan setiap event dari campaign itu tanpa identitas kampanye eksplisit. Event tanpa `campaign_id` atau dengan ID berbeda tetap dapat diprediksi/diblokir secara internal, tetapi tidak memicu Google Ads.
+
+### 11.2 MarTech benchmark
+
+`POST /api/predict/martech` menggunakan fitur raw MarTech, timestamp epoch milliseconds, dan model LightGBM benchmark. Model tersebut dilatih pada dataset simulasi 500.000 baris. Endpoint selalu mengembalikan `automation_eligible: false` dan tidak boleh digunakan pada jalur event CPA atau blocklist. Artefak metrik mencakup accuracy 88,136%, precision Fraud 86,967%, recall Fraud 88,923%, F1 Fraud 87,934%, ROC-AUC 94,031%, PR-AUC 93,046% pada 75.000 test rows kronologis. Model CPA runtime tetap memiliki metrik yang belum memenuhi quality gate.
+
+### 11.3 Quality gate dan mitigasi
+
+Quality gate model CPA mensyaratkan accuracy >95%, precision/recall/F1 Fraud ≥90%, serta ROC-AUC ≥90%. Jika salah satu syarat gagal atau metrik tidak tersedia, API menandai model `shadow_only` dan model tidak boleh memicu auto-block. Rule burst default mengamati 5 detik: 10 klik untuk user teridentifikasi dengan User-Agent sama; 20 klik anonim dengan User-Agent sama hanya jika setidaknya satu indikator VPN/proxy/IP reputation Bad aktif. Ambang dapat diubah lewat `.env` dan wajib diuji pada traffic nyata untuk mengendalikan false positive.
+
+### 11.4 Google Ads
+
+Konfigurasi target default dari pemilik proyek: Customer ID `3425120099`, Campaign ID `3426120099`, campaign `advertising`. `GOOGLE_ADS_AUTO_EXCLUDE_ENABLED` dan `GOOGLE_ADS_MUTATIONS_ENABLED` harus tetap `false` selama uji read-only. Setelah OAuth dikonfigurasi, verifikasi Customer ID, Campaign ID, dan nama campaign; baru setelah itu, dengan persetujuan pemilik, kedua flag dapat diaktifkan di `backend/.env`. Auto-exclusion membatasi diri pada IPv4 publik tunggal, sumber deteksi yang diizinkan, dan tipe campaign yang mendukung IP exclusion. Google Ads mempunyai batas 500 IP/CIDR per campaign; IP exclusion campaign-level tidak tersedia untuk semua jenis campaign.
+
+Test account memungkinkan verifikasi konfigurasi/mutasi API tetapi tidak menayangkan iklan atau mencatat biaya aktual. Integrasi test account bukan bukti biaya aktual yang berhasil dihemat. `metrics.invalid_clicks` merupakan metrik agregat campaign-day, bukan stream klik individual dan bukan daftar alamat IP. Pengukuran penghematan memerlukan uji produksi terkontrol, pemetaan campaign/ad yang benar, log biaya aktual, dan persetujuan pemilik akun.

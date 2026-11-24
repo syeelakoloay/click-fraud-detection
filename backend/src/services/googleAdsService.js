@@ -91,37 +91,50 @@ function createGoogleAdsService(options = {}) {
       clientSecret: String(env.GOOGLE_ADS_CLIENT_SECRET || "").trim(),
       refreshToken: String(env.GOOGLE_ADS_REFRESH_TOKEN || "").trim(),
       defaultCustomerId: String(env.GOOGLE_ADS_CUSTOMER_ID || "").replace(/-/g, "").trim(),
+      defaultCampaignId: String(env.GOOGLE_ADS_CAMPAIGN_ID || "").trim(),
+      defaultCampaignName: String(env.GOOGLE_ADS_CAMPAIGN_NAME || "").trim(),
       loginCustomerId: String(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || "").replace(/-/g, "").trim(),
       apiVersion: String(env.GOOGLE_ADS_API_VERSION || DEFAULT_API_VERSION).trim(),
       mutationsEnabled: String(env.GOOGLE_ADS_MUTATIONS_ENABLED || "false").toLowerCase() === "true",
+      autoExcludeEnabled: String(env.GOOGLE_ADS_AUTO_EXCLUDE_ENABLED || "false").toLowerCase() === "true",
       actionKeyConfigured: Boolean(String(env.GOOGLE_ADS_ACTION_KEY || "").trim()),
     };
   }
 
-  function isConfigured() {
+  function isOAuthConfigured() {
     const settings = config();
     return Boolean(settings.clientId && settings.clientSecret && settings.refreshToken);
+  }
+
+  function isConfigured() {
+    return isOAuthConfigured();
   }
 
   function getStatus() {
     const settings = config();
     return {
       configured: isConfigured(),
+      oauthConfigured: isOAuthConfigured(),
+      developerTokenRequired: false,
+      apiAccessModel: "google_cloud_project_oauth",
       mutationsEnabled: settings.mutationsEnabled,
+      autoExcludeEnabled: settings.autoExcludeEnabled,
       actionKeyConfigured: settings.actionKeyConfigured,
       apiVersion: settings.apiVersion,
       defaultCustomerId: /^\d{10}$/.test(settings.defaultCustomerId) ? settings.defaultCustomerId : null,
+      defaultCampaignId: /^\d{1,20}$/.test(settings.defaultCampaignId) ? settings.defaultCampaignId : null,
+      defaultCampaignName: settings.defaultCampaignName || null,
       scope: GOOGLE_ADS_SCOPE,
       labelSource: "Google Ads metrics.invalid_clicks (agregat kampanye-hari)",
       datasetPath: "ml/datasets/google_ads_campaign_daily.csv",
       message: isConfigured()
-        ? "OAuth tersedia. Akses API dan izin akun tetap harus divalidasi saat permintaan pertama."
-        : "OAuth belum dikonfigurasi. Isi GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, dan GOOGLE_ADS_REFRESH_TOKEN di backend/.env.",
+        ? "Kredensial OAuth tersedia. Akses Google Ads API ditentukan oleh project Google Cloud, tingkat akses API, dan izin akun; verifikasi dilakukan saat permintaan pertama."
+        : "Konfigurasi belum lengkap. Isi GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, dan GOOGLE_ADS_REFRESH_TOKEN di backend/.env.",
     };
   }
 
   async function getAccessToken() {
-    if (!isConfigured()) {
+    if (!isOAuthConfigured()) {
       const error = new Error("Google Ads OAuth belum dikonfigurasi pada backend/.env.");
       error.status = 503;
       error.code = "GOOGLE_ADS_NOT_CONFIGURED";
@@ -232,28 +245,53 @@ function createGoogleAdsService(options = {}) {
 
   async function listCampaigns(customerId) {
     const id = normalizeCustomerId(customerId || config().defaultCustomerId);
-    const rows = await search(id, `
+    // Fetch campaign metadata independently from date-segmented metrics so that
+    // newly created test campaigns with no impressions/clicks still appear.
+    const metadataRows = await search(id, `
       SELECT customer.currency_code, campaign.id, campaign.name, campaign.status,
-        campaign.advertising_channel_type, metrics.impressions,
-        metrics.clicks, metrics.invalid_clicks, metrics.invalid_click_rate,
-        metrics.cost_micros
+        campaign.advertising_channel_type
+      FROM campaign
+      WHERE campaign.status != 'REMOVED'
+      ORDER BY campaign.id
+    `);
+    const metricRows = await search(id, `
+      SELECT campaign.id, metrics.impressions, metrics.clicks,
+        metrics.invalid_clicks, metrics.invalid_click_rate, metrics.cost_micros
       FROM campaign
       WHERE segments.date DURING LAST_30_DAYS
         AND campaign.status != 'REMOVED'
-      ORDER BY campaign.id
     `);
-    return rows.map((row) => ({
-      id: String(row.campaign?.id || ""),
-      name: row.campaign?.name || "(tanpa nama)",
-      status: row.campaign?.status || "UNKNOWN",
-      channelType: row.campaign?.advertisingChannelType || "UNKNOWN",
-      currencyCode: row.customer?.currencyCode || "IDR",
-      impressions: Number(row.metrics?.impressions || 0),
-      clicks: Number(row.metrics?.clicks || 0),
-      invalidClicks: Number(row.metrics?.invalidClicks || 0),
-      invalidClickRate: Number(row.metrics?.invalidClickRate || 0),
-      costMicros: Number(row.metrics?.costMicros || 0),
-    }));
+    const metricsByCampaign = new Map();
+    metricRows.forEach((row) => {
+      const campaignId = String(row.campaign?.id || "");
+      if (!campaignId) return;
+      const current = metricsByCampaign.get(campaignId) || {
+        impressions: 0, clicks: 0, invalidClicks: 0, costMicros: 0,
+      };
+      current.impressions += Number(row.metrics?.impressions || 0);
+      current.clicks += Number(row.metrics?.clicks || 0);
+      current.invalidClicks += Number(row.metrics?.invalidClicks || 0);
+      current.costMicros += Number(row.metrics?.costMicros || 0);
+      metricsByCampaign.set(campaignId, current);
+    });
+    return metadataRows.map((row) => {
+      const campaignId = String(row.campaign?.id || "");
+      const metrics = metricsByCampaign.get(campaignId) || {
+        impressions: 0, clicks: 0, invalidClicks: 0, costMicros: 0,
+      };
+      return {
+        id: campaignId,
+        name: row.campaign?.name || "(tanpa nama)",
+        status: row.campaign?.status || "UNKNOWN",
+        channelType: row.campaign?.advertisingChannelType || "UNKNOWN",
+        currencyCode: row.customer?.currencyCode || "IDR",
+        impressions: metrics.impressions,
+        clicks: metrics.clicks,
+        invalidClicks: metrics.invalidClicks,
+        invalidClickRate: metrics.clicks > 0 ? metrics.invalidClicks / metrics.clicks : 0,
+        costMicros: metrics.costMicros,
+      };
+    });
   }
 
   async function getCampaign(customerId, campaignId) {
@@ -261,7 +299,7 @@ function createGoogleAdsService(options = {}) {
     const campaign = normalizeCampaignId(campaignId);
     const rows = await search(id, `
       SELECT campaign.id, campaign.name, campaign.status,
-        campaign.advertising_channel_type
+        campaign.advertising_channel_type, campaign.advertising_channel_sub_type
       FROM campaign
       WHERE campaign.id = ${campaign}
         AND campaign.status != 'REMOVED'
@@ -344,6 +382,64 @@ function createGoogleAdsService(options = {}) {
       },
     });
     return { campaignId: campaign, added: newIps.length, skippedExisting: normalizedIps.length - newIps.length, total: existing.length + newIps.length, result };
+  }
+
+  function isPublicIPv4(value) {
+    if (net.isIP(value) !== 4) return false;
+    const [a, b, c] = value.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && (b === 0 || b === 168)) return false;
+    if (a === 198 && (b === 18 || b === 19 || b === 51)) return false;
+    if (a === 203 && b === 0 && c === 113) return false;
+    return true;
+  }
+
+  async function autoExcludeBlockedIp(ipAddress, options = {}) {
+    const settings = config();
+    const source = String(options.source || "");
+    if (!settings.autoExcludeEnabled || !settings.mutationsEnabled) {
+      return {
+        status: "skipped",
+        reason: "Auto-exclusion Google Ads belum diaktifkan secara eksplisit; GOOGLE_ADS_AUTO_EXCLUDE_ENABLED dan GOOGLE_ADS_MUTATIONS_ENABLED harus true.",
+      };
+    }
+    if (!settings.defaultCustomerId || !/^\d{10}$/.test(settings.defaultCustomerId)) {
+      return { status: "skipped", reason: "GOOGLE_ADS_CUSTOMER_ID belum valid." };
+    }
+    if (!settings.defaultCampaignId || !/^\d{1,20}$/.test(settings.defaultCampaignId)) {
+      return { status: "skipped", reason: "GOOGLE_ADS_CAMPAIGN_ID belum valid." };
+    }
+    if (!options.campaignId || String(options.campaignId) !== settings.defaultCampaignId) {
+      return { status: "skipped", reason: "Event harus memiliki campaign_id yang sama dengan campaign target Google Ads yang dikonfigurasi." };
+    }
+    if (!settings.defaultCampaignName) {
+      return { status: "skipped", reason: "GOOGLE_ADS_CAMPAIGN_NAME belum dikonfigurasi untuk verifikasi campaign." };
+    }
+    if (!isPublicIPv4(String(ipAddress || "").trim())) {
+      return { status: "skipped", reason: "Hanya alamat IPv4 publik tunggal yang boleh dikirim ke pengecualian campaign." };
+    }
+    if (!["behavioral_rule", "model"].includes(source)) {
+      return { status: "skipped", reason: "Sumber deteksi tidak diizinkan untuk auto-exclusion." };
+    }
+
+    const customerId = settings.defaultCustomerId;
+    const campaignId = normalizeCampaignId(settings.defaultCampaignId);
+    const campaignRow = await getCampaign(customerId, campaignId);
+    const campaign = campaignRow.campaign || {};
+    if (String(campaign.name || "").trim().toLowerCase() !== settings.defaultCampaignName.trim().toLowerCase()) {
+      return { status: "skipped", campaignId, reason: "Nama campaign pada Google Ads tidak cocok dengan GOOGLE_ADS_CAMPAIGN_NAME." };
+    }
+    const unsupportedChannels = new Set(["VIDEO", "HOTEL", "APP", "PERFORMANCE_MAX", "SMART"]);
+    const channelType = String(campaign.advertisingChannelType || "").toUpperCase();
+    const channelSubType = String(campaign.advertisingChannelSubType || "").toUpperCase();
+    if (unsupportedChannels.has(channelType) || channelSubType === "DISPLAY_SMART" || channelSubType === "SMART_DISPLAY") {
+      return { status: "skipped", campaignId, reason: `Campaign channel/subtype ${channelType}/${channelSubType} tidak mendukung IP exclusion pada level campaign.` };
+    }
+    const result = await excludeCampaignIps(customerId, campaignId, [String(ipAddress).trim()]);
+    return { status: "excluded", campaignId, customerId, ipAddress: String(ipAddress).trim(), ...result };
   }
 
   async function getCampaignModelTrainingStatus() {
@@ -441,6 +537,7 @@ function createGoogleAdsService(options = {}) {
     pauseCampaign,
     listCampaignIpBlocks,
     excludeCampaignIps,
+    autoExcludeBlockedIp,
     syncCampaignDailyTrainingData,
     getCampaignModelTrainingStatus,
     normalizeCustomerId,

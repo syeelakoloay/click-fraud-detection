@@ -45,8 +45,13 @@ function createMonitoringController({ monitoringService, modelRunService }) {
           )
         : null;
 
+      const webRobotDetection = typeof modelRunService.readWebRobotMetricsArtifact === "function"
+        ? modelRunService.readWebRobotMetricsArtifact()
+        : null;
+
       return res.status(200).json({
         data,
+        web_robot_detection: webRobotDetection,
         status: modelStatus.status,
         note: modelStatus.note,
       });

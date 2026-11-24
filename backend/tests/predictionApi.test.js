@@ -122,3 +122,79 @@ test("POST /api/predict meneruskan error layanan ML ke error handler", async () 
     assert.equal(body.error.code, "ML_SERVICE_UNAVAILABLE");
   });
 });
+
+test("POST /api/predict/martech memakai endpoint benchmark terpisah", async () => {
+  let received;
+  const fakePredictionService = {
+    async predict() { throw new Error("Endpoint CPA tidak boleh dipanggil."); },
+    async predictMartech(input) {
+      received = input;
+      return {
+        prediction: 1,
+        classification: "Fraud",
+        probabilities: { Normal: 0.1, Fraud: 0.9 },
+        model_scope: "martech_simulated_click_fraud_benchmark",
+        automation_eligible: false,
+      };
+    },
+  };
+  await withServer(fakePredictionService, async (baseUrl) => {
+    const payload = { timestamp: 1559433600000, apptype: "1", android_id: "slot-x" };
+    const response = await fetch(`${baseUrl}/api/predict/martech`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(received, payload);
+    assert.equal(body.automation_eligible, false);
+  });
+});
+
+
+test("POST /api/predict/web-robot memakai model sesi robot yang terpisah", async () => {
+  let received;
+  const fakePredictionService = {
+    async predict() { throw new Error("Endpoint CPA tidak boleh dipanggil."); },
+    async predictWebRobotSession(input) {
+      received = input;
+      return {
+        prediction: 1,
+        classification: "Robot",
+        probabilities: { Human: 0.03, Robot: 0.97 },
+        model_scope: "web_session_robot_detection",
+        automation_eligible: false,
+        fraud_click_classifier: false,
+      };
+    },
+  };
+  await withServer(fakePredictionService, async (baseUrl) => {
+    const payload = { NUMBER_OF_REQUESTS: 79, TOTAL_DURATION: 592, TOTAL_TOPICS: 242 };
+    const response = await fetch(`${baseUrl}/api/predict/web-robot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(received, payload);
+    assert.equal(body.classification, "Robot");
+    assert.equal(body.fraud_click_classifier, false);
+    assert.equal(body.automation_eligible, false);
+  });
+});
+
+test("POST /api/predict/web-robot menolak request jika service model tidak tersedia", async () => {
+  const fakePredictionService = { async predict() { return {}; } };
+  await withServer(fakePredictionService, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/predict/web-robot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ NUMBER_OF_REQUESTS: 10 }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(body.error.code, "WEB_ROBOT_MODEL_UNAVAILABLE");
+  });
+});

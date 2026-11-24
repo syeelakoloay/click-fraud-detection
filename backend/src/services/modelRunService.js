@@ -6,7 +6,35 @@ const { ModelRun } = require("../models");
 
 const MODEL_TYPE_FROM_ARTIFACT = "Random Forest baseline";
 const MODEL_METRICS_PATH = path.resolve(__dirname, "../../ml/results/model_metrics.csv");
+const WEB_ROBOT_METRICS_PATH = path.resolve(__dirname, "../../ml/results/web_robot_model_metrics.json");
 const METRIC_FIELDS = ["accuracy", "precision", "recall", "f1_score", "roc_auc"];
+
+function readWebRobotMetricsArtifact() {
+  try {
+    const artifact = JSON.parse(fs.readFileSync(WEB_ROBOT_METRICS_PATH, "utf8"));
+    const metrics = artifact.test_metrics || {};
+    const required = ["accuracy", "balanced_accuracy", "precision_robot", "recall_robot", "f1_robot", "roc_auc"];
+    if (!required.every((field) => Number.isFinite(Number(metrics[field])))) return null;
+    return {
+      model_type: artifact.model_type || "Web Robot classifier",
+      model_scope: artifact.model_scope || "web_session_robot_detection",
+      source_dataset: artifact.source_dataset || "Web Robot Detection",
+      label_mapping: artifact.label_mapping || { "0": "Human", "1": "Robot" },
+      rows_total: Number(artifact.rows_total) || null,
+      test_rows: Number(metrics.rows) || null,
+      test_metrics: Object.fromEntries(required.map((field) => [field, Number(metrics[field])])),
+      cross_validation_accuracy: Number(artifact.cross_validation_on_training_split?.accuracy?.mean) || null,
+      quality_checks: artifact.quality_checks || {},
+      meets_quality_gate: artifact.meets_robot_model_quality_gate === true,
+      automation_eligible: false,
+      fraud_click_classifier: false,
+      warning: String(artifact.warning || "Model ini mengklasifikasikan sesi Human/Robot, bukan klik Valid/Fraud."),
+    };
+  } catch (error) {
+    if (error.code === "ENOENT" || error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
 
 function readModelMetricsArtifact() {
   if (!fs.existsSync(MODEL_METRICS_PATH)) {
@@ -113,6 +141,7 @@ async function getModelStatus() {
 module.exports = {
   createModelRun,
   readModelMetricsArtifact,
+  readWebRobotMetricsArtifact,
   syncModelMetricsFromArtifact,
   getModelRunById,
   listModelRuns,

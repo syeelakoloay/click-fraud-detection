@@ -1,3 +1,13 @@
+# Konfigurasi khusus ClickGuard (23 November 2026)
+
+Pemilik proyek telah menetapkan target test account: Customer ID `3425120099`, Campaign ID `3426120099`, nama campaign `advertising`. Nilai tanpa tanda hubung dipakai di API. `.env.example` berisi nilai tersebut, sementara OAuth Client ID/Secret dan Refresh Token tetap kosong karena harus dibuat oleh pemilik akun dan disimpan lokal di `backend/.env`. Jangan pernah mengirim rahasia OAuth melalui percakapan atau commit ke Git.
+
+Event yang akan memicu IP exclusion harus menyertakan `campaign_id: "3426120099"`. Tanpa campaign mapping yang eksplisit atau jika ID tidak cocok, service akan melewati mutasi Google Ads. Dua pengaman harus diaktifkan bersama untuk auto-exclusion: `GOOGLE_ADS_MUTATIONS_ENABLED=true` dan `GOOGLE_ADS_AUTO_EXCLUDE_ENABLED=true`. Keduanya tetap `false` secara default. Auto-exclusion hanya menerima IPv4 publik tunggal dan hanya pada channel campaign yang mendukung IP exclusion di level campaign.
+
+Test account dapat menguji OAuth, membaca campaign, serta menerima permintaan mutasi, tetapi tidak menyajikan iklan atau mencatat biaya. Oleh sebab itu, test account tidak dapat membuktikan biaya aktual yang dihemat; klaim pengurangan biaya membutuhkan uji produksi terkontrol.
+
+---
+
 # Panduan Dataset ML Terverifikasi dan Integrasi Google Ads
 
 Panduan ini melengkapi pipeline ClickGuard untuk dua tingkat analisis yang berbeda:
@@ -87,19 +97,20 @@ Backend memakai Google Ads REST API v26 dan OAuth 2.0 user authorization dengan 
 
 `https://www.googleapis.com/auth/adwords`
 
-OAuth refresh token dan client secret hanya dibaca oleh backend dari `backend/.env`. Tidak ada secret yang dimasukkan ke frontend atau ZIP. Google Ads API access level baru dikelola melalui Google Cloud project; untuk onboarding baru per dokumentasi yang berlaku sejak developer-token sunset September 2026, aktifkan API dan ajukan akses yang sesuai pada Google Ads API Overview di Cloud Console. Test access hanya mencakup test accounts; akses produksi memerlukan tingkat akses produksi yang disetujui.
+OAuth refresh token, client secret, dan client ID hanya dibaca backend dari `backend/.env`. Tidak ada secret yang dimasukkan ke frontend atau ZIP. **Per 9 September 2026, Developer Token tidak lagi diperlukan untuk request Google Ads API baru.** Akses API kini terkait dengan project Google Cloud yang memiliki OAuth client; tingkat akses project dan izin akun menentukan akun/operasi yang dapat dipakai. Periksa halaman resmi Access Levels sebelum mengaktifkan mutasi.
 
 Pengguna OAuth juga harus mempunyai izin yang memadai pada akun Google Ads target. Jika akun berada di bawah Manager Account (MCC), isi `GOOGLE_ADS_LOGIN_CUSTOMER_ID` dengan Customer ID manager tanpa tanda hubung. Jika tidak memakai MCC, biarkan kosong.
 
 ### B.2 Buat kredensial OAuth
 
 1. Buat/pilih Google Cloud project yang akan memiliki OAuth client dan mengakses Google Ads API.
-2. Aktifkan Google Ads API pada project tersebut. Buka halaman Google Ads API Overview di Cloud Console dan ajukan akses produksi jika ingin membaca/mengubah akun produksi. Untuk pengembangan awal, gunakan test account dan access level yang sesuai.
-3. Konfigurasikan OAuth consent screen dan tambahkan akun Google yang digunakan sebagai test user bila consent screen masih berstatus Testing. Perhatian: untuk aplikasi OAuth eksternal berstatus Testing yang meminta scope Google Ads, otorisasi dan refresh token dapat kedaluwarsa setelah 7 hari. Untuk pemakaian berkelanjutan, siapkan status publikasi/produksi dan penuhi proses verifikasi Google yang berlaku; jangan mengandalkan token Testing sebagai koneksi permanen.
-4. Buat OAuth Client ID jenis Web Application. Untuk menggunakan Google OAuth Playground sebagai alat memperoleh refresh token, tambahkan Authorized redirect URI `https://developers.google.com/oauthplayground`.
-5. Buka Google OAuth Playground. Pada pengaturan (ikon roda gigi), aktifkan penggunaan OAuth credentials milik sendiri, lalu masukkan Client ID dan Client Secret dari project di atas.
-6. Pada Step 1, minta scope `https://www.googleapis.com/auth/adwords`; pastikan alur meminta offline access/refresh token. Otorisasi menggunakan akun Google yang mempunyai akses ke Customer ID iklan.
-7. Tukarkan authorization code pada Step 2 dan salin `refresh_token`. Simpan secara rahasia; jangan mengirimkannya ke percakapan, commit, screenshot publik, atau frontend.
+2. Aktifkan Google Ads API pada Google Cloud project yang sama dengan OAuth client.
+3. Pastikan Google Ads API diaktifkan pada project Google Cloud yang sama dengan OAuth client. Akses test account maupun produksi mengikuti access level project; jangan menganggap project baru otomatis mendapat izin operasi produksi.
+4. Konfigurasikan OAuth consent screen dan tambahkan akun Google yang digunakan sebagai test user bila consent screen masih berstatus Testing. Untuk pemakaian jangka panjang, ikuti persyaratan publikasi dan verifikasi OAuth Google yang berlaku.
+5. Buat OAuth Client ID jenis Web Application. Untuk menggunakan Google OAuth Playground sebagai alat memperoleh refresh token, tambahkan Authorized redirect URI `https://developers.google.com/oauthplayground`.
+6. Buka Google OAuth Playground. Pada pengaturan (ikon roda gigi), aktifkan penggunaan OAuth credentials milik sendiri, lalu masukkan Client ID dan Client Secret dari project di atas.
+7. Pada Step 1, minta scope `https://www.googleapis.com/auth/adwords`; pastikan alur meminta offline access/refresh token. Otorisasi menggunakan akun Google yang mempunyai akses ke Customer ID iklan.
+8. Tukarkan authorization code pada Step 2 dan salin `refresh_token`. Simpan secara rahasia; jangan mengirimkannya ke percakapan, commit, screenshot publik, atau frontend.
 
 Dokumentasi OAuth Google Ads dan Cloud project access dapat berubah; selalu ikuti halaman resmi yang ditautkan pada bagian Referensi.
 
@@ -111,10 +122,13 @@ Salin `backend/.env.example` menjadi `backend/.env`, lalu isi:
 GOOGLE_ADS_CLIENT_ID=client-id-dari-google-cloud
 GOOGLE_ADS_CLIENT_SECRET=client-secret-dari-google-cloud
 GOOGLE_ADS_REFRESH_TOKEN=refresh-token-dari-oauth
-GOOGLE_ADS_CUSTOMER_ID=1234567890
+GOOGLE_ADS_CUSTOMER_ID=3425120099
+GOOGLE_ADS_CAMPAIGN_ID=3426120099
+GOOGLE_ADS_CAMPAIGN_NAME=advertising
 GOOGLE_ADS_LOGIN_CUSTOMER_ID=
 GOOGLE_ADS_API_VERSION=v26
 GOOGLE_ADS_MUTATIONS_ENABLED=false
+GOOGLE_ADS_AUTO_EXCLUDE_ENABLED=false
 GOOGLE_ADS_ACTION_KEY=buat-kunci-random-panjang
 ```
 
@@ -198,9 +212,18 @@ Dengan demikian, saat ini proyek menyediakan fondasi mitigasi melalui kontrol ka
 
 - SMU Research Data — BuzzCity mobile advertisement dataset: https://ink.library.smu.edu.sg/researchdata/22/
 - Oentaryo et al. (2014), *Detecting Click Fraud in Online Advertising: A Data Mining Approach*, JMLR: https://www.jmlr.org/papers/volume15/oentaryo14a/oentaryo14a.pdf
-- Google Ads API — developer-token sunset and access migration: https://developers.google.com/google-ads/api/docs/api-policy/developer-token
+- Google Ads API — kebijakan Developer Token dan penghentiannya pada 9 September 2026: https://developers.google.com/google-ads/api/docs/api-policy/developer-token
+- Google Ads API — akses level project: https://developers.google.com/google-ads/api/docs/access-levels
+- Google Ads API — OAuth 2.0: https://developers.google.com/google-ads/api/docs/oauth/overview
+- Google Ads API — Test Accounts: https://developers.google.com/google-ads/api/docs/best-practices/test-accounts
+- Google Ads API — release notes (gunakan versi aktif): https://developers.google.com/google-ads/api/docs/release-notes
 - Google Ads API — OAuth 2.0 internals and scope: https://developers.google.com/google-ads/api/docs/oauth/internals
 - Google Ads API — campaign status: https://developers.google.com/google-ads/api/fields/v26/campaign
 - Google Ads API — `metrics.invalid_clicks` / `metrics.invalid_click_rate`: https://developers.google.com/google-ads/api/fields/v26/metrics
 - Google Ads API — campaign criterion IP exclusions: https://developers.google.com/google-ads/api/reference/rpc/v26/CampaignCriterion
 - TalkingData AdTracking competition (target `is_attributed`): https://www.kaggle.com/c/talkingdata-adtracking-fraud-detection/data
+
+
+## C. Benchmark MarTech tambahan
+
+Dataset MarTech tersimpan pada `ml/datasets/martech/train.csv`, terpisah dari dataset CPA. Jalankan `python ml/train_martech_model.py` atau `npm run train:martech`. Model LightGBM dan metrik disimpan di `ml/results/martech_*`. Skema MarTech tidak kompatibel dengan 15 fitur CPA; endpoint khusus `/api/predict/martech` hanya untuk eksperimen dan selalu `automation_eligible: false`. Hasil test terbaru: accuracy 88,136%, precision Fraud 86,967%, recall Fraud 88,923%, F1 Fraud 87,934%, ROC-AUC 94,031%, PR-AUC 93,046% pada split kronologis 70/15/15. Dataset sumber menyatakan data simulasi dan arsip tidak berisi LICENSE; angka tersebut bukan klaim akurasi pada traffic produksi.

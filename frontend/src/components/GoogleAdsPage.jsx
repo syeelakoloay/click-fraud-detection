@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatGoogleAdsAmount } from '../utils/currency.js';
 import { AlertTriangle, CheckCircle2, ExternalLink, KeyRound, PauseCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 
 function getApiEndpoint(path) {
@@ -26,7 +27,7 @@ async function request(path, options = {}) {
 
 const dateInput = value => value.toISOString().slice(0, 10);
 const number = value => new Intl.NumberFormat('id-ID').format(Number(value || 0));
-const money = (micros, currencyCode = 'IDR') => new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 }).format(Number(micros || 0) / 1_000_000);
+const money = (micros, currencyCode = 'IDR') => formatGoogleAdsAmount(micros, currencyCode);
 const boxStyle = { border: '1px solid #e7ecf5', borderRadius: 12, padding: 14, background: '#fff' };
 const fieldStyle = { width: '100%', minWidth: 0, padding: '10px 12px', border: '1px solid #dfe6f1', borderRadius: 9, font: 'inherit', color: '#33445f', background: '#fff' };
 const buttonStyle = { border: 0, borderRadius: 9, padding: '10px 13px', background: '#3768f5', color: '#fff', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 7 };

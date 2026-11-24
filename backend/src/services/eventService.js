@@ -11,6 +11,7 @@ const {
 
 const ALLOWED_SORT_FIELDS = new Set([
   "timestamp",
+  "received_at",
   "click_id",
   "is_fraudulent",
 ]);

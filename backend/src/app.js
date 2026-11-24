@@ -54,7 +54,7 @@ function createApp(options = {}) {
         return callback(error);
       },
       methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "X-Google-Ads-Action-Key"],
+      allowedHeaders: ["Content-Type", "X-Google-Ads-Action-Key", "X-Event-Ingestion-Key"],
       maxAge: 600,
       optionsSuccessStatus: 204,
     })
@@ -73,7 +73,7 @@ function createApp(options = {}) {
 
   const realtimeService = (options.services && options.services.realtimePredictionService)
     || realtimePredictionService;
-  app.use("/api/events", createEventRouter(services.eventService, services.blockedIPService));
+  app.use("/api/events", createEventRouter(services.eventService, services.blockedIPService, realtimeService));
   app.use(
   "/api/predict",
   createPredictionRouter(services.predictionService)

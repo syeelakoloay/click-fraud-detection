@@ -28,7 +28,16 @@
     "test:google-ads": "node --test tests/googleAdsService.test.js tests/googleAdsController.test.js",
     "train:verified-click": "python ml/train_verified_click_model.py",
     "train:google-ads": "python ml/train_google_ads_campaign_model.py",
-    "train:fdma-publisher": "python ml/train_fdma_publisher_model.py"
+    "train:fdma-publisher": "python ml/train_fdma_publisher_model.py",
+    "train:martech": "python ml/train_martech_model.py",
+    "train:web-robot": "python ml/train_web_robot_model.py",
+    "train:twitter-bot": "python ml/train_twitter_bot_benchmark.py",
+    "test:martech": "python -m unittest discover -s ml/tests",
+    "test:prediction-api": "node --test tests/predictionApi.test.js",
+    "test:web-robot-api": "python ml/test_web_robot_api.py",
+    "test:realtime": "node --test tests/realtimeDetection.test.js",
+    "test": "node --test tests/*.test.js",
+    "test:ingestion-auth": "node --test tests/ingestionAuth.test.js"
   },
   "dependencies": {
     "dotenv": "^16.0.0",

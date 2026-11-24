@@ -2,7 +2,7 @@
 
 ## 1. Tujuan
 
-Endpoint ini menerima dataset CSV mentah dan menyimpan record yang lolos validasi melalui service event yang sudah digunakan backend. Kontrak kolom mengikuti dataset sumber `click_fraud_dataset.csv` dan model Mongoose `Event`, yaitu 22 kolom, termasuk `budget` sebagai nominal biaya per event dalam Rupiah. Endpoint ini tidak menggantikan `POST /api/events/ingest`, yang tetap menerima array event berformat JSON.
+Endpoint ini menerima dataset CSV mentah dan menyimpan record yang lolos validasi melalui service event yang sudah digunakan backend. Kontrak kolom mengikuti dataset sumber `click_fraud_dataset.csv` dan model Mongoose `Event`, yaitu 22 kolom, termasuk `budget` sebagai nominal biaya dummy per event. Nilai numerik `budget` pada CSV dan database dipertahankan apa adanya. Frontend menampilkan nominal tersebut menggunakan simbol dollar dan format angka en-US tanpa menerapkan konversi kurs. Endpoint ini tidak menggantikan `POST /api/events/ingest`, yang tetap menerima array event berformat JSON.
 
 ## 2. Kontrak endpoint
 
@@ -19,7 +19,7 @@ Pilihan body CSV mentah menjaga implementasi tetap menggunakan dependensi backen
 
 ## 3. Struktur data dan validasi
 
-CSV wajib memuat tepat 22 nama kolom dataset sumber: `click_id`, `timestamp`, `user_id`, `ip_address`, `device_type`, `browser`, `operating_system`, `referrer_url`, `page_url`, `click_duration`, `scroll_depth`, `mouse_movement`, `keystrokes_detected`, `ad_position`, `click_frequency`, `time_since_last_click`, `device_ip_reputation`, `VPN_usage`, `proxy_usage`, `bot_likelihood_score`, dan `is_fraudulent`, serta `budget`. Nilai `budget` harus berupa bilangan bulat Rupiah non-negatif; pada dataset yang disertakan nilainya merupakan data dummy per event. Susunan kolom boleh berbeda karena setiap nilai dipetakan berdasarkan nama header, tetapi header yang hilang, berulang, atau tidak dikenal ditolak.
+CSV wajib memuat tepat 22 nama kolom dataset sumber: `click_id`, `timestamp`, `user_id`, `ip_address`, `device_type`, `browser`, `operating_system`, `referrer_url`, `page_url`, `click_duration`, `scroll_depth`, `mouse_movement`, `keystrokes_detected`, `ad_position`, `click_frequency`, `time_since_last_click`, `device_ip_reputation`, `VPN_usage`, `proxy_usage`, `bot_likelihood_score`, dan `is_fraudulent`, serta `budget`. Nilai `budget` harus berupa nominal USD non-negatif dengan maksimal dua angka desimal; pada dataset yang disertakan nilainya merupakan data dummy per event. Susunan kolom boleh berbeda karena setiap nilai dipetakan berdasarkan nama header, tetapi header yang hilang, berulang, atau tidak dikenal ditolak.
 
 Parser memeriksa struktur kutipan CSV, termasuk koma di dalam tanda kutip, tanda kutip ganda yang di-escape, dan baris baru dalam field yang dikutip. Setiap record harus memiliki jumlah field yang sama dengan header. Sebelum disimpan, setiap record dibuat sebagai dokumen `Event` sementara dan divalidasi serta di-casting oleh schema Mongoose yang sudah ada; hanya record valid yang diteruskan ke `eventService.createEvent`.
 

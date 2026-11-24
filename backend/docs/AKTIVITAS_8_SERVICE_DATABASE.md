@@ -17,7 +17,7 @@ Aktivitas 8 meneruskan fondasi Aktivitas 6. File `src/config/database.js`, model
 ### `blockedIPService`
 
 - `addBlockedIP(ipAddress)`: menambah record blocked IP; panggilan berulang pada IP sama tidak membuat record duplikat.
-- `getBlockedIP(ipAddress)` dan `isIPBlocked(ipAddress)`: mengambil record atau memeriksa keberadaan IP.
+- `getBlockedIP(ipAddress)` mengambil record. `isIPBlocked(ipAddress)` hanya bernilai true untuk sumber block aktif; `historical_dataset_label` adalah referensi historis dan tidak dianggap memblokir.
 - `listBlockedIPs(options)`: mengambil daftar dengan pagination.
 - `removeBlockedIP(ipAddress)`: menghapus satu record berdasarkan IP.
 

@@ -1,0 +1,157 @@
+{
+  "model_type": "LightGBMClassifier",
+  "model_scope": "martech_simulated_click_fraud_benchmark",
+  "source_dataset": "MarTech Challenge 10 (simulated click sessions)",
+  "label_mapping": {
+    "0": "Normal",
+    "1": "Fraud/cheating"
+  },
+  "rows_total": 500000,
+  "class_counts": {
+    "0": 257760,
+    "1": 242240
+  },
+  "split": {
+    "method": "chronological 70/15/15",
+    "train_rows": 350000,
+    "validation_rows": 75000,
+    "test_rows": 75000,
+    "train_fraud_rate": 0.48619142857142855,
+    "validation_fraud_rate": 0.4748133333333333,
+    "test_fraud_rate": 0.48616,
+    "train_date_range_utc": [
+      "2019-06-02 16:00:01.174781250+00:00",
+      "2019-06-07 15:50:10.437400879+00:00"
+    ],
+    "validation_date_range_utc": [
+      "2019-06-07 15:50:12.718577637+00:00",
+      "2019-06-08 15:51:55.075666992+00:00"
+    ],
+    "test_date_range_utc": [
+      "2019-06-08 15:51:55.991639404+00:00",
+      "2019-06-09 16:00:04.317492432+00:00"
+    ]
+  },
+  "best_iteration": 357,
+  "threshold_selected_on_validation_by_f1": 0.42,
+  "test_metrics": {
+    "accuracy": 0.88136,
+    "balanced_accuracy": 0.8815718971385889,
+    "precision_fraud": 0.8696690091733276,
+    "recall_fraud": 0.8892271405847183,
+    "f1_fraud": 0.8793393360815795,
+    "roc_auc": 0.9403143755249943,
+    "average_precision": 0.9304601440416005,
+    "threshold": 0.42,
+    "rows": 75000,
+    "confusion_matrix": [
+      [
+        33679,
+        4859
+      ],
+      [
+        4039,
+        32423
+      ]
+    ]
+  },
+  "test_metrics_threshold_0_5": {
+    "accuracy": 0.8843466666666666,
+    "balanced_accuracy": 0.8838982406086786,
+    "precision_fraud": 0.8915126239855726,
+    "recall_fraud": 0.8676978772420603,
+    "f1_fraud": 0.8794440583738707,
+    "roc_auc": 0.9403143755249943,
+    "average_precision": 0.9304601440416005,
+    "threshold": 0.5,
+    "rows": 75000,
+    "confusion_matrix": [
+      [
+        34688,
+        3850
+      ],
+      [
+        4824,
+        31638
+      ]
+    ]
+  },
+  "validation_metrics_at_selected_threshold": {
+    "accuracy": 0.8821333333333333,
+    "balanced_accuracy": 0.8822334607537139,
+    "precision_fraud": 0.8697141278828892,
+    "recall_fraud": 0.8842211676167476,
+    "f1_fraud": 0.8769076528907207,
+    "roc_auc": 0.9403405934840046,
+    "average_precision": 0.9300955326199353,
+    "threshold": 0.42,
+    "rows": 75000,
+    "confusion_matrix": [
+      [
+        34672,
+        4717
+      ],
+      [
+        4123,
+        31488
+      ]
+    ]
+  },
+  "test_majority_baseline_accuracy": 0.5138400000000001,
+  "feature_columns": [
+    "android_id",
+    "apptype",
+    "carrier",
+    "lan",
+    "media_id",
+    "ntt",
+    "os",
+    "osv",
+    "package",
+    "version",
+    "fea_hash",
+    "location",
+    "fea1_hash",
+    "cus_type",
+    "dev_height",
+    "dev_ppi",
+    "dev_width",
+    "hour_utc",
+    "minute_utc",
+    "day_of_week_utc",
+    "day_offset"
+  ],
+  "categorical_features": [
+    "android_id",
+    "apptype",
+    "carrier",
+    "lan",
+    "media_id",
+    "ntt",
+    "os",
+    "osv",
+    "package",
+    "version",
+    "fea_hash",
+    "location",
+    "fea1_hash",
+    "cus_type"
+  ],
+  "numeric_features": [
+    "dev_height",
+    "dev_ppi",
+    "dev_width",
+    "hour_utc",
+    "minute_utc",
+    "day_of_week_utc",
+    "day_offset"
+  ],
+  "excluded_columns": [
+    "Unnamed: 0",
+    "sid",
+    "label"
+  ],
+  "dataset_sha256": "dca7118e36569900991b577a47e8872e039d8adbb3bda0cbe417c3fc92754f7b",
+  "automation_eligible": false,
+  "automation_block_reason": "Model dilatih pada dataset MarTech yang disimulasikan dan memiliki skema yang tidak kompatibel dengan event CPA ClickGuard. Hasil ini hanya benchmark terpisah."
+}

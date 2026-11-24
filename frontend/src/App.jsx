@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchAllBlockedIPs } from './api.js';
 import GoogleAdsPage from './components/GoogleAdsPage.jsx';
 import { calculateFraudUpperControlLimit, formatPolylinePoints } from './traffic.Core.mjs';
+import { formatUsd } from './utils/currency.js';
 import {
   Activity, Bell, Check, ChevronDown, CircleHelp, Filter,
   LayoutDashboard, MousePointer2, Settings, ShieldAlert,
@@ -41,14 +42,12 @@ const descriptions = {
 
 const numberFormat = value => new Intl.NumberFormat('id-ID').format(value);
 const percent = value => `${value.toFixed(2).replace('.', ',')}%`;
-const configuredCpcText = String(import.meta.env.VITE_DEFAULT_CPC_RUPIAH ?? '').trim();
+const configuredCpcText = String(import.meta.env.VITE_DEFAULT_CPC_USD ?? '').trim();
 const configuredCpc = Number(configuredCpcText);
-const DEFAULT_CPC_RUPIAH = configuredCpcText && Number.isFinite(configuredCpc) && configuredCpc >= 0
+const DEFAULT_CPC_USD = configuredCpcText && Number.isFinite(configuredCpc) && configuredCpc >= 0
   ? configuredCpc
-  : 2000;
-const rupiahFormat = value => new Intl.NumberFormat('id-ID', {
-  style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-}).format(Number.isFinite(Number(value)) ? Number(value) : 0);
+  : 0.11;
+const usdFormat = value => formatUsd(value);
 
 // Leave VITE_API_URL empty during local development so requests stay same-origin
 // and Vite proxies /api to Express. This avoids browser CORS failures on localhost.
@@ -520,7 +519,7 @@ function normalizeTrafficRows(rows) {
       if (!date) return null;
       const hasActualBudget = row?.budget !== undefined && row?.budget !== null && String(row.budget).trim() !== '' &&
         Number.isFinite(Number(row.budget)) && Number(row.budget) >= 0;
-      const eventBudget = hasActualBudget ? Number(row.budget) : DEFAULT_CPC_RUPIAH;
+      const eventBudget = hasActualBudget ? Number(row.budget) : DEFAULT_CPC_USD;
       return {
         date, total: 1, fraud: isFraud ? 1 : 0, valid: !isPending && !isFraud ? 1 : 0, pending: isPending ? 1 : 0,
         validBudget: isFraud || isPending ? 0 : eventBudget,
@@ -540,8 +539,8 @@ function normalizeTrafficRows(rows) {
 
     return {
       date, total, fraud, valid, pending,
-      validBudget: validBudget ?? valid * DEFAULT_CPC_RUPIAH,
-      fraudBudget: fraudBudget ?? fraud * DEFAULT_CPC_RUPIAH,
+      validBudget: validBudget ?? valid * DEFAULT_CPC_USD,
+      fraudBudget: fraudBudget ?? fraud * DEFAULT_CPC_USD,
       budgetActualEvents: readNumericField(row, ['budgetActualEvents', 'budget_actual_events']) ?? 0,
       budgetFallbackEvents: readNumericField(row, ['budgetFallbackEvents', 'budget_fallback_events']) ?? total,
       order: index
@@ -774,7 +773,7 @@ function bucketsFromEvents(events, period, now = new Date()) {
     const fraudulent = !pending && (asBoolean(effectiveLabel) || classification === 'fraud');
     const hasActualBudget = event.budget !== undefined && event.budget !== null && String(event.budget).trim() !== '' &&
       Number.isFinite(Number(event.budget)) && Number(event.budget) >= 0;
-    const eventBudget = hasActualBudget ? Number(event.budget) : DEFAULT_CPC_RUPIAH;
+    const eventBudget = hasActualBudget ? Number(event.budget) : DEFAULT_CPC_USD;
     return {
       date,
       total: 1,
@@ -1324,22 +1323,22 @@ function TrafficChart({ events, period }) {
           <div className="selected-insight-section">
             <h4>Anggaran</h4>
             <div className="selected-budget-grid">
-              <div className="budget-card-total"><span>Total Estimasi Biaya</span><strong>{rupiahFormat(selectedPoint.budgetTotal)}</strong></div>
-              <div className="budget-card-valid"><span>Estimasi Biaya Valid</span><strong>{rupiahFormat(selectedPoint.validBudget)}</strong></div>
-              <div className="budget-card-fraud"><span>Estimasi Biaya Fraud</span><strong>{rupiahFormat(selectedPoint.fraudBudget)}</strong></div>
+              <div className="budget-card-total"><span>Total Estimasi Biaya</span><strong>{usdFormat(selectedPoint.budgetTotal)}</strong></div>
+              <div className="budget-card-valid"><span>Estimasi Biaya Valid</span><strong>{usdFormat(selectedPoint.validBudget)}</strong></div>
+              <div className="budget-card-fraud"><span>Estimasi Biaya Fraud</span><strong>{usdFormat(selectedPoint.fraudBudget)}</strong></div>
               <div className="budget-card-valid-rate"><span>Persentase Biaya Valid</span><strong>{percent(selectedValidBudgetRate)}</strong></div>
               <div className="budget-card-waste"><span>Potensi Pemborosan</span><strong>{percent(selectedBudgetWasteRate)}</strong></div>
             </div>
             <p className="selected-budget-analysis">
-              <strong>Analisis Anggaran:</strong> Dari total estimasi biaya {rupiahFormat(selectedPoint.budgetTotal)}, sekitar {rupiahFormat(selectedPoint.validBudget)} digunakan untuk traffic berlabel Valid yang berpotensi memberi nilai bagi kampanye, sedangkan {rupiahFormat(selectedPoint.fraudBudget)} berpotensi terbuang akibat traffic berlabel Fraud. Potensi pemborosan anggaran pada interval ini mencapai {percent(selectedBudgetWasteRate)}.
+              <strong>Analisis Anggaran:</strong> Dari total estimasi biaya {usdFormat(selectedPoint.budgetTotal)}, sekitar {usdFormat(selectedPoint.validBudget)} digunakan untuk traffic berlabel Valid yang berpotensi memberi nilai bagi kampanye, sedangkan {usdFormat(selectedPoint.fraudBudget)} berpotensi terbuang akibat traffic berlabel Fraud. Potensi pemborosan anggaran pada interval ini mencapai {percent(selectedBudgetWasteRate)}.
             </p>
             <p className="selected-insight-footnote">
               {selectedPoint.total === 0
                 ? 'Tidak ada event pada interval ini, sehingga tidak ada biaya yang diestimasi.'
                 : selectedPoint.budgetActualEvents > 0
-                  ? `${numberFormat(selectedPoint.budgetActualEvents)} event memakai nilai pada kolom budget; ${numberFormat(selectedPoint.budgetFallbackEvents)} event memakai fallback CPC ${rupiahFormat(DEFAULT_CPC_RUPIAH)} (atur melalui VITE_DEFAULT_CPC_RUPIAH).`
-                  : `Tidak ada nilai budget pada data interval ini; estimasi memakai fallback CPC ${rupiahFormat(DEFAULT_CPC_RUPIAH)} per event (atur melalui VITE_DEFAULT_CPC_RUPIAH).`}
-              {' '}Kolom budget pada dataset yang disertakan adalah data dummy per event, bukan tagihan aktual platform iklan. Biaya traffic Valid bukan profit/keuntungan bersih, dan biaya Fraud adalah potensi pemborosan yang belum menjadi kerugian aktual terverifikasi.
+                  ? `${numberFormat(selectedPoint.budgetActualEvents)} event memakai nilai pada kolom budget; ${numberFormat(selectedPoint.budgetFallbackEvents)} event memakai fallback CPC ${usdFormat(DEFAULT_CPC_USD)} (atur melalui VITE_DEFAULT_CPC_USD).`
+                  : `Tidak ada nilai budget pada data interval ini; estimasi memakai fallback CPC ${usdFormat(DEFAULT_CPC_USD)} per event (atur melalui VITE_DEFAULT_CPC_USD).`}
+              {' '}Kolom budget pada dataset yang disertakan merupakan nilai anggaran dummy per klik. Nilai numerik dipertahankan persis sebagaimana tersedia pada dataset; simbol dollar dan format angka hanya mengubah cara penampilan, bukan nominalnya. Nilai ini bukan tagihan aktual platform iklan. Biaya traffic Valid bukan profit/keuntungan bersih, dan biaya Fraud adalah potensi pemborosan yang belum menjadi kerugian aktual terverifikasi.
             </p>
           </div>
         </section>
@@ -1427,17 +1426,22 @@ function BlockedIPTable({ ips, status, error, page, setPage }) {
     <>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>IP ADDRESS</th><th>SUMBER PENCATATAN</th></tr></thead>
+          <thead><tr><th>IP ADDRESS</th><th>SUMBER PENCATATAN</th><th>STATUS INTERNAL</th><th>GOOGLE ADS</th></tr></thead>
           <tbody>
-            {status === 'loading' && <tr><td colSpan="2">Memuat daftar blocked IP dari Express API...</td></tr>}
-            {status === 'error' && <tr><td colSpan="2" role="alert">Daftar blocked IP gagal dimuat. {error}</td></tr>}
-            {status === 'empty' && <tr><td colSpan="2">Belum ada IP di collection blocked_ips. Pastikan event historis sudah diimpor ke MongoDB; backend akan menyinkronkan IP berlabel Fraud saat startup atau setelah import. Restart backend setelah data tersedia. Event baru dapat menambah IP melalui prediksi ML real-time.</td></tr>}
-            {status === 'success' && pageIPs.map(item => (
-              <tr key={item._id || item.ip_address}>
-                <td className="mono"><b>{item.ip_address}</b></td>
-                <td>{item.source === 'ml_prediction' ? 'Prediksi ML' : item.source === 'historical_dataset_label' ? 'Label Fraud historis dataset' : 'Manual / sumber awal'}</td>
-              </tr>
-            ))}
+            {status === 'loading' && <tr><td colSpan="4">Memuat daftar IP referensi dan blocklist aktif dari Express API...</td></tr>}
+            {status === 'error' && <tr><td colSpan="4" role="alert">Daftar IP gagal dimuat. {error}</td></tr>}
+            {status === 'empty' && <tr><td colSpan="4">Belum ada IP yang tercatat. IP referensi historis dan IP yang diblokir oleh rule akan muncul di sini secara terpisah.</td></tr>}
+            {status === 'success' && pageIPs.map(item => {
+              const historical = item.source === 'historical_dataset_label';
+              return (
+                <tr key={item._id || item.ip_address}>
+                  <td className="mono"><b>{item.ip_address}</b></td>
+                  <td>{item.source === 'ml_prediction' ? 'Prediksi ML' : historical ? 'Label Fraud historis dataset' : item.source === 'behavioral_rule' ? 'Rule perilaku real-time' : 'Manual / sumber awal'}</td>
+                  <td>{historical ? 'Referensi saja — tidak memblokir' : 'Blocklist internal aktif'}</td>
+                  <td>{historical ? 'Tidak dikirim' : item.google_ads_exclusion_status === 'excluded' ? 'IP dikecualikan' : item.google_ads_exclusion_status === 'failed' ? 'Gagal' : item.google_ads_exclusion_status === 'skipped' ? 'Dilewati' : 'Belum dikirim'}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1737,6 +1741,7 @@ function App() {
   const [dataSource, setDataSource] = useState('loading');
   const [backendStatus, setBackendStatus] = useState('checking');
   const [modelMetrics, setModelMetrics] = useState(null);
+  const [webRobotMetrics, setWebRobotMetrics] = useState(null);
   const [modelStatus, setModelStatus] = useState('checking');
   const [blockedIPs, setBlockedIPs] = useState([]);
   const [blockedIPStatus, setBlockedIPStatus] = useState('loading');
@@ -1781,6 +1786,7 @@ function App() {
       
       .then(payload => {
         if (!alive) return;
+        setWebRobotMetrics(payload?.web_robot_detection || null);
 
         const status = String(
           payload?.status ?? payload?.data?.status ?? ''
@@ -1867,6 +1873,72 @@ function App() {
 
     return () => { alive = false; controller.abort(); };
   }, []);
+
+  // Refresh only the newest page: the initial load reads full history, while
+  // polling merges new/updated events without repeatedly downloading all rows.
+  useEffect(() => {
+    if (!hasEntered) return undefined;
+    let inFlight = false;
+    let requestController = null;
+    const refreshLatestEvents = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      requestController = new AbortController();
+      try {
+        const endpoint = getApiEndpoint('events');
+        const response = await fetch(`${endpoint}?page=1&limit=100&sortBy=received_at&sortOrder=desc`, {
+          headers: { Accept: 'application/json' },
+          signal: requestController.signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const rows = extractEventRows(payload);
+        if (!Array.isArray(rows)) throw new Error('Format respons event terbaru tidak valid.');
+        const latest = rows.map((row, index) => normalizeEvent(row, index));
+        if (latest.length) {
+          setEvents(previous => {
+            const byId = new Map(previous.map(item => [String(item.click_id), item]));
+            latest.forEach(item => byId.set(String(item.click_id), item));
+            return sortEventsNewestFirst(Array.from(byId.values()));
+          });
+          setDataSource('api');
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          // Keep the last successful dashboard data visible during a transient outage.
+          console.warn('Polling event terbaru gagal:', error.message);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(refreshLatestEvents, 10_000);
+    return () => {
+      window.clearInterval(timer);
+      requestController?.abort();
+    };
+  }, [hasEntered]);
+
+  // Keep the internal mitigation list current while its page is being viewed.
+  useEffect(() => {
+    if (!hasEntered || active !== 'blocked') return undefined;
+    let alive = true;
+    const refreshBlocklist = async () => {
+      try {
+        const rows = await fetchAllBlockedIPs({ endpoint: getApiEndpoint('blocked-ips') });
+        if (!alive) return;
+        setBlockedIPs(rows);
+        setBlockedIPStatus(rows.length ? 'success' : 'empty');
+        setBlockedIPError('');
+      } catch (error) {
+        if (!alive) return;
+        setBlockedIPStatus('error');
+        setBlockedIPError(explainApiError(error, 'GET /api/blocked-ips'));
+      }
+    };
+    const timer = window.setInterval(refreshBlocklist, 15_000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [hasEntered, active]);
 
   const filtered = useMemo(() => events.filter(event =>
     (classFilter === 'all' || (classFilter === 'fraud' ? event.is_fraudulent === true : event.is_fraudulent === false)) &&
@@ -2030,7 +2102,7 @@ function App() {
                 <span className="status-chip"><Check size={13} />Terbaca</span>
               </div>
               <div className="setting-row">
-                <div><b>Blocked IPs</b><p>GET /api/blocked-ips · {blockedIPs.length} IP aktual terbaca.</p></div>
+                <div><b>Blocked IPs</b><p>GET /api/blocked-ips · {blockedIPs.length} IP referensi/mitigasi tercatat.</p></div>
                 <span className="status-chip">{blockedIPStatus === 'success' ? 'Terbaca' : blockedIPStatus === 'empty' ? 'Kosong' : blockedIPStatus === 'error' ? 'Gagal' : 'Memuat'}</span>
               </div>
               <div className="setting-row">
@@ -2050,7 +2122,7 @@ function App() {
                   <section className="panels-grid">
                     <section className="panel traffic-panel">
                       <div className="panel-head">
-                        <div><h2>Traffic overview</h2><p>Jumlah event Valid dan Fraud berdasarkan periode waktu</p></div>
+                        <div><h2>Traffic overview</h2><p>Jumlah event Valid dan Fraud · data terbaru diperiksa setiap 10 detik</p></div>
                         <div className="chart-actions">
                           <label className="period-select-wrap" aria-label="Pilih periode grafik traffic">
                             <CalendarDays size={14} aria-hidden="true" />
@@ -2077,8 +2149,31 @@ function App() {
                       </div>
                       <div className="model-source"><span>Status integrasi</span><code>{backendStatus === 'connected' ? 'Terhubung' : backendStatus === 'offline' ? 'Offline' : 'Memeriksa'}</code></div>
                       <p className="model-metrics-note">
-                        Target pada Konsep.docx adalah accuracy di atas 95%. Artefak evaluasi model utama dalam paket ini mencatat accuracy 75,10%, sehingga target tersebut belum tercapai. Angka metrik yang ditampilkan di bawah mengikuti model run tersimpan di MongoDB dan dapat berbeda jika hasil evaluasi diperbarui.
+                        Model utama klik iklan memakai label Valid/Fraud dan saat ini belum memenuhi quality gate. Model sesi Web Robot memiliki target berbeda, yaitu Human/Robot; akurasinya ditampilkan terpisah dan tidak boleh ditafsirkan sebagai akurasi Fraud klik iklan.
                       </p>
+                      {webRobotMetrics?.test_metrics && (
+                        <div className="model-metrics web-robot-metrics">
+                          <h3>Model pendamping · deteksi sesi Web Robot</h3>
+                          <p className="model-metrics-name">Label: Human / Robot · {numberFormat(webRobotMetrics.test_rows || 0)} data holdout</p>
+                          <div className="model-metrics-grid">
+                            {[
+                              ['Accuracy', webRobotMetrics.test_metrics.accuracy],
+                              ['Precision Robot', webRobotMetrics.test_metrics.precision_robot],
+                              ['Recall Robot', webRobotMetrics.test_metrics.recall_robot],
+                              ['F1 Robot', webRobotMetrics.test_metrics.f1_robot],
+                              ['ROC-AUC', webRobotMetrics.test_metrics.roc_auc]
+                            ].map(([label, value]) => (
+                              <div className="model-metric-item" key={`web-robot-${label}`}>
+                                <span>{label}</span>
+                                <strong>{Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(2)}%` : '—'}</strong>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="model-metrics-note">
+                            {webRobotMetrics.meets_quality_gate ? 'Quality gate sesi Human/Robot tercapai.' : 'Quality gate sesi Human/Robot belum tercapai.'} Model ini tidak mengklasifikasikan klik sebagai Valid/Fraud dan tidak diberi izin auto-block ML.
+                          </p>
+                        </div>
+                      )}
                       {modelMetrics && (
                         <div className="model-metrics">
                           <h3>Metrik evaluasi model</h3>

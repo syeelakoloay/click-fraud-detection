@@ -10,7 +10,7 @@
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
     "build:frontend": "npm --prefix frontend run build",
-    "test:frontend": "npm --prefix frontend run test:activity16 && npm --prefix frontend run test:activity28",
+    "test:frontend": "npm --prefix frontend run test:activity16 && npm --prefix frontend run test:activity28 && npm --prefix frontend run test:currency",
     "check:backend": "npm --prefix backend run check:activity28 && npm --prefix backend run check:syntax",
     "test:backend": "npm --prefix backend test",
     "verify:activity28": "npm run check:backend && npm run test:frontend && npm run build:frontend",
@@ -18,6 +18,15 @@
     "test:google-ads": "npm --prefix backend run test:google-ads",
     "train:verified-click": "npm --prefix backend run train:verified-click",
     "train:fdma-publisher": "npm --prefix backend run train:fdma-publisher",
-    "train:google-ads": "npm --prefix backend run train:google-ads"
+    "train:google-ads": "npm --prefix backend run train:google-ads",
+    "train:martech": "npm --prefix backend run train:martech",
+    "train:web-robot": "npm --prefix backend run train:web-robot",
+    "train:twitter-bot": "npm --prefix backend run train:twitter-bot",
+    "test:martech": "npm --prefix backend run test:martech",
+    "test:prediction-api": "npm --prefix backend run test:prediction-api",
+    "test:web-robot-api": "npm --prefix backend run test:web-robot-api",
+    "test:realtime": "npm --prefix backend run test:realtime",
+    "test:ingestion-auth": "npm --prefix backend run test:ingestion-auth",
+    "test:currency": "npm --prefix frontend run test:currency"
   }
 }

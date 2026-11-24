@@ -21,8 +21,11 @@ const env = {
   GOOGLE_ADS_CLIENT_SECRET: "client-secret",
   GOOGLE_ADS_REFRESH_TOKEN: "refresh-token",
   GOOGLE_ADS_CUSTOMER_ID: "123-456-7890",
+  GOOGLE_ADS_CAMPAIGN_ID: "11",
+  GOOGLE_ADS_CAMPAIGN_NAME: "Search A",
   GOOGLE_ADS_API_VERSION: "v26",
   GOOGLE_ADS_MUTATIONS_ENABLED: "false",
+  GOOGLE_ADS_AUTO_EXCLUDE_ENABLED: "false",
 };
 
 test("validasi Google Ads Customer ID, rentang tanggal, dan IP/CIDR", () => {
@@ -41,6 +44,13 @@ test("status tidak membocorkan rahasia OAuth", () => {
   assert.equal(status.configured, true);
   assert.equal(status.apiVersion, "v26");
   assert.equal(status.defaultCustomerId, "1234567890");
+  assert.equal(status.defaultCampaignId, "11");
+  assert.equal(status.defaultCampaignName, "Search A");
+  assert.equal(status.autoExcludeEnabled, false);
+  assert.equal(status.oauthConfigured, true);
+  assert.equal(status.developerTokenRequired, false);
+  assert.equal(status.apiAccessModel, "google_cloud_project_oauth");
+  assert.equal("developerToken" in status, false);
   assert.equal("refreshToken" in status, false);
   assert.equal(status.mutationsEnabled, false);
 });
@@ -63,7 +73,17 @@ test("OAuth token, daftar kampanye, jeda, pengecualian IP, dan sinkronisasi labe
         { segments: { date: "2026-01-01" }, campaign: { id: "11", name: "Search A", advertisingChannelType: "SEARCH" }, metrics: { impressions: "1000", clicks: "40", costMicros: "2500000", invalidClicks: "2", invalidClickRate: 0.05 } },
         { segments: { date: "2026-01-01" }, campaign: { id: "12", name: "Display B", advertisingChannelType: "DISPLAY" }, metrics: { impressions: "500", clicks: "20", costMicros: "1000000", invalidClicks: "0", invalidClickRate: 0 } },
       ] });
-      return jsonResponse({ results: [{ campaign: { id: "11", name: "Search A", status: campaignStatus, advertisingChannelType: "SEARCH" }, metrics: { impressions: "1000", clicks: "40", invalidClicks: "2", invalidClickRate: 0.05, costMicros: "2500000" } }] });
+      if (query.includes("segments.date DURING LAST_30_DAYS")) return jsonResponse({ results: [
+        { campaign: { id: "11" }, metrics: { impressions: "1000", clicks: "40", invalidClicks: "2", costMicros: "2500000" } },
+      ] });
+      if (query.includes("SELECT customer.currency_code, campaign.id")) return jsonResponse({ results: [
+        { customer: { currencyCode: "USD" }, campaign: { id: "11", name: "Search A", status: campaignStatus, advertisingChannelType: "SEARCH" } },
+        { customer: { currencyCode: "USD" }, campaign: { id: "99", name: "New Empty Test Campaign", status: "ENABLED", advertisingChannelType: "SEARCH" } },
+      ] });
+      if (query.includes("WHERE campaign.id = 11")) return jsonResponse({ results: [
+        { campaign: { id: "11", name: "Search A", status: campaignStatus, advertisingChannelType: "SEARCH" } },
+      ] });
+      return jsonResponse({ results: [] });
     }
     if (String(url).includes("campaigns:mutate")) { campaignStatus = "PAUSED"; return jsonResponse({ results: [{ resourceName: "customers/1234567890/campaigns/11" }] }); }
     if (String(url).includes("campaignCriteria:mutate")) return jsonResponse({ results: [{ resourceName: "customers/1234567890/campaignCriteria/11~3" }] });
@@ -75,6 +95,7 @@ test("OAuth token, daftar kampanye, jeda, pengecualian IP, dan sinkronisasi labe
     assert.equal(customers[0].customerId, "1234567890");
     const campaigns = await service.listCampaigns();
     assert.equal(campaigns[0].invalidClicks, 2);
+    assert.equal(campaigns.some((campaign) => campaign.id === "99" && campaign.impressions === 0), true);
     const pause = await service.pauseCampaign("1234567890", "11");
     assert.equal(pause.status, "PAUSED");
     const excluded = await service.excludeCampaignIps("1234567890", "11", ["192.0.2.10", "2001:db8::1"]);
@@ -86,16 +107,97 @@ test("OAuth token, daftar kampanye, jeda, pengecualian IP, dan sinkronisasi labe
     assert.match(csv, /has_invalid_clicks/);
     assert.match(csv, /"1"/);
     assert.match(calls[0].url, /oauth2\.googleapis\.com/);
+    const apiCall = calls.find((call) => call.url.includes("googleads.googleapis.com"));
+    assert.equal("developer-token" in apiCall.options.headers, false);
     assert.ok(queryCount >= 4);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
 
+
+test("auto-exclusion hanya berjalan setelah dua flag aktif dan campaign terverifikasi", async () => {
+  const calls = [];
+  const activeEnv = {
+    ...env,
+    GOOGLE_ADS_CUSTOMER_ID: "3425120099",
+    GOOGLE_ADS_CAMPAIGN_ID: "3426120099",
+    GOOGLE_ADS_CAMPAIGN_NAME: "advertising",
+    GOOGLE_ADS_MUTATIONS_ENABLED: "true",
+    GOOGLE_ADS_AUTO_EXCLUDE_ENABLED: "true",
+  };
+  const fakeFetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes("oauth2.googleapis.com/token")) return jsonResponse({ access_token: "access-token", expires_in: 3600 });
+    if (String(url).includes("googleAds:search")) {
+      const query = JSON.parse(options.body).query;
+      if (query.includes("campaign_criterion")) return jsonResponse({ results: [] });
+      if (query.includes("WHERE campaign.id = 3426120099")) return jsonResponse({ results: [
+        { campaign: { id: "3426120099", name: "advertising", status: "ENABLED", advertisingChannelType: "SEARCH", advertisingChannelSubType: "UNSPECIFIED" } },
+      ] });
+    }
+    if (String(url).includes("campaignCriteria:mutate")) return jsonResponse({ results: [{ resourceName: "customers/3425120099/campaignCriteria/3426120099~1" }] });
+    throw new Error(`Unexpected URL ${url}`);
+  };
+  const service = createGoogleAdsService({ env: activeEnv, fetchImpl: fakeFetch });
+  const result = await service.autoExcludeBlockedIp("8.8.8.8", { source: "behavioral_rule", campaignId: "3426120099" });
+  assert.equal(result.status, "excluded");
+  assert.equal(result.campaignId, "3426120099");
+  assert.equal(result.added, 1);
+  assert.equal(calls.some((call) => call.url.includes("campaignCriteria:mutate")), true);
+  const beforeUnmapped = calls.filter((call) => call.url.includes("campaignCriteria:mutate")).length;
+  const missingMapping = await service.autoExcludeBlockedIp("8.8.4.4", { source: "behavioral_rule" });
+  const wrongCampaign = await service.autoExcludeBlockedIp("8.8.4.4", { source: "behavioral_rule", campaignId: "9999999999" });
+  assert.equal(missingMapping.status, "skipped");
+  assert.equal(wrongCampaign.status, "skipped");
+  assert.equal(calls.filter((call) => call.url.includes("campaignCriteria:mutate")).length, beforeUnmapped);
+});
+
+test("auto-exclusion menolak IP private dan tetap SAFE-OFF secara default", async () => {
+  let called = false;
+  const service = createGoogleAdsService({ env: { ...env, GOOGLE_ADS_AUTO_EXCLUDE_ENABLED: "false" }, fetchImpl: async () => { called = true; return jsonResponse({}); } });
+  const offResult = await service.autoExcludeBlockedIp("8.8.8.8", { source: "behavioral_rule", campaignId: "11" });
+  assert.equal(offResult.status, "skipped");
+  assert.equal(called, false);
+
+  const enabled = createGoogleAdsService({ env: {
+    ...env,
+    GOOGLE_ADS_CAMPAIGN_ID: "11",
+    GOOGLE_ADS_CAMPAIGN_NAME: "Search A",
+    GOOGLE_ADS_MUTATIONS_ENABLED: "true",
+    GOOGLE_ADS_AUTO_EXCLUDE_ENABLED: "true",
+  }, fetchImpl: async () => { called = true; return jsonResponse({}); } });
+  const privateResult = await enabled.autoExcludeBlockedIp("192.168.1.10", { source: "behavioral_rule", campaignId: "11" });
+  assert.equal(privateResult.status, "skipped");
+  assert.equal(called, false);
+});
+
 test("OAuth yang belum diatur tidak mengakses Google Ads", async () => {
   const service = createGoogleAdsService({ env: {}, fetchImpl: async () => { throw new Error("must not call"); } });
   assert.equal(service.getStatus().configured, false);
   await assert.rejects(service.listAccessibleCustomers(), /OAuth belum dikonfigurasi/);
+});
+
+test("OAuth saja cukup untuk membentuk request; Developer Token tidak lagi dipersyaratkan", async () => {
+  const calls = [];
+  const service = createGoogleAdsService({ env: { ...env }, fetchImpl: async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes("oauth2.googleapis.com/token")) {
+      return jsonResponse({ access_token: "access-token", expires_in: 3600 });
+    }
+    if (String(url).includes("customers:listAccessibleCustomers")) {
+      return jsonResponse({ resourceNames: ["customers/1234567890"] });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  } });
+  const status = service.getStatus();
+  assert.equal(status.configured, true);
+  assert.equal(status.developerTokenRequired, false);
+  const customers = await service.listAccessibleCustomers();
+  assert.equal(customers[0].customerId, "1234567890");
+  const apiCall = calls.find((call) => call.url.includes("googleads.googleapis.com"));
+  assert.ok(apiCall);
+  assert.equal("developer-token" in apiCall.options.headers, false);
 });
 
 

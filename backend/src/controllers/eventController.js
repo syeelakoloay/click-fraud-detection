@@ -44,12 +44,22 @@ function getErrorMessage(error) {
   return error && error.message ? error.message : "Permintaan tidak dapat diproses.";
 }
 
-function createEventController(eventService, blockedIPService) {
+function createEventController(eventService, blockedIPService, realtimePredictionService) {
   async function createEvent(req, res, next) {
     try {
       assertObjectPayload(req.body);
-      assertKnownFields(req.body);
-      const event = await eventService.createEvent(req.body);
+      const payload = { ...req.body };
+      if (!payload.user_agent && typeof req.get === "function") {
+        payload.user_agent = String(req.get("user-agent") || "").slice(0, 512);
+      }
+      assertKnownFields(payload);
+      if (realtimePredictionService?.isPredictionReadyEvent?.(payload)) {
+        const result = await realtimePredictionService.ingestAndPredict(payload);
+        // Keep the existing { data } contract consumed by dashboard clients;
+        // add detection metadata without forcing a frontend redesign.
+        return res.status(201).json({ data: result.data, detection: result.prediction });
+      }
+      const event = await eventService.createEvent(payload);
       return res.status(201).json({ data: event });
     } catch (error) {
       return next(error);
