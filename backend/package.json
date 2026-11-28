@@ -1,0 +1,51 @@
+{
+  "name": "click-fraud-detection-backend",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Sistem Deteksi Fraud Klik Iklan Digital: MongoDB, service, Express Event API, monitoring, dan import dataset CSV.",
+  "scripts": {
+    "init:db": "node src/initDatabase.js",
+    "verify:db": "node src/verifyDatabase.js",
+    "check:activity8": "node scripts/checkActivity8Syntax.js",
+    "test:activity8:unit": "node scripts/testActivity8Utils.js",
+    "test:activity8": "node scripts/testActivity8Services.js",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check:activity10": "node scripts/checkActivity10Syntax.js",
+    "test:api:activity10": "node --test scripts/testApiActivity10.js",
+    "test:api:activity10:mongo": "node --test scripts/testMongoIntegrationActivity10.js",
+    "check:activity13": "node scripts/checkActivity13Syntax.js",
+    "test:activity13:unit": "node --test tests/monitoringController.test.js tests/blockedIPController.test.js",
+    "test:api:activity13:mongo": "node --test scripts/testMonitoringIntegrationActivity13.js",
+    "test:csv-parser": "node --test scripts/testCsvParser.js",
+    "test:api:dataset-import": "node --test scripts/testApiDatasetImport.js",
+    "check:dataset-import": "node scripts/checkDatasetImportSyntax.js",
+    "test:api:dataset-import:mongo": "node --test scripts/testDatasetImportMongoIntegration.js",
+    "test:dataset-import-validation": "node --test scripts/testDatasetImportValidation.js",
+    "test:dataset-import-error-handler": "node --test scripts/testDatasetImportErrorHandler.js",
+    "check:activity28": "node scripts/checkApiContractActivity28.js",
+    "check:syntax": "node scripts/checkSyntaxActivity28.js",
+    "test:google-ads": "node --test tests/googleAdsService.test.js tests/googleAdsController.test.js",
+    "train:verified-click": "python ml/train_verified_click_model.py",
+    "train:google-ads": "python ml/train_google_ads_campaign_model.py",
+    "train:fdma-publisher": "python ml/train_fdma_publisher_model.py",
+    "train:martech": "python ml/train_martech_model.py",
+    "train:web-robot": "python ml/train_web_robot_model.py",
+    "train:twitter-bot": "python ml/train_twitter_bot_benchmark.py",
+    "test:martech": "python -m unittest discover -s ml/tests",
+    "test:prediction-api": "node --test tests/predictionApi.test.js",
+    "test:web-robot-api": "python ml/test_web_robot_api.py",
+    "test:realtime": "node --test tests/realtimeDetection.test.js",
+    "test": "node --test tests/*.test.js",
+    "test:ingestion-auth": "node --test tests/ingestionAuth.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "mongoose": "^8.24.7",
+    "cors": "^2.8.6",
+    "express": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

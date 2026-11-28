@@ -1,0 +1,135 @@
+{
+  "model_file": "web_robot_lightgbm_model.joblib",
+  "model_scope": "web_session_robot_detection",
+  "feature_columns": [
+    "NUMBER_OF_REQUESTS",
+    "TOTAL_DURATION",
+    "AVERAGE_TIME",
+    "STANDARD_DEVIATION",
+    "REPEATED_REQUESTS",
+    "HTTP_RESPONSE_2XX",
+    "HTTP_RESPONSE_3XX",
+    "HTTP_RESPONSE_4XX",
+    "HTTP_RESPONSE_5XX",
+    "GET_METHOD",
+    "POST_METHOD",
+    "HEAD_METHOD",
+    "OTHER_METHOD",
+    "NIGHT",
+    "UNASSIGNED",
+    "IMAGES",
+    "TOTAL_HTML",
+    "HTML_TO_IMAGE",
+    "HTML_TO_CSS",
+    "HTML_TO_JS",
+    "WIDTH",
+    "DEPTH",
+    "STD_DEPTH",
+    "CONSECUTIVE",
+    "DATA",
+    "PPI",
+    "SF_REFERRER",
+    "SF_FILETYPE",
+    "TOTAL_TOPICS",
+    "UNIQUE_TOPICS",
+    "PAGE_SIMILARITY",
+    "PAGE_VARIANCE",
+    "BOOLEAN_PAGE_VARIANCE"
+  ],
+  "label_mapping": {
+    "0": "Human/non-robot session",
+    "1": "Robot session"
+  },
+  "test_metrics": {
+    "accuracy": 0.9808477470121001,
+    "balanced_accuracy": 0.9691426539542984,
+    "precision_robot": 0.954562383612663,
+    "recall_robot": 0.9496109670248241,
+    "f1_robot": 0.9520802377414561,
+    "roc_auc": 0.9969657037642498,
+    "average_precision_robot": 0.9891970461580865,
+    "majority_baseline_accuracy": 0.7996436790141787,
+    "threshold": 0.5,
+    "rows": 13471,
+    "confusion_matrix": [
+      [
+        10650,
+        122
+      ],
+      [
+        136,
+        2563
+      ]
+    ]
+  },
+  "cross_validation_on_training_split": {
+    "accuracy": {
+      "mean": 0.9772275727564386,
+      "std": 0.0013291540875695006,
+      "folds": [
+        0.9783798830843463,
+        0.9757795100222717,
+        0.9792130660727543,
+        0.9765219005196734,
+        0.9762435040831478
+      ]
+    },
+    "balanced_accuracy": {
+      "mean": 0.9653150386265379,
+      "std": 0.002266455003827318,
+      "folds": [
+        0.966174022487698,
+        0.9648956738199095,
+        0.9691253590672981,
+        0.9639713615862049,
+        0.9624087761715789
+      ]
+    },
+    "precision": {
+      "mean": 0.9411843585615147,
+      "std": 0.004466465286896261,
+      "folds": [
+        0.9462465245597775,
+        0.9333333333333333,
+        0.9444189251263206,
+        0.9399815327793167,
+        0.9419414770088249
+      ]
+    },
+    "recall": {
+      "mean": 0.9454377026401112,
+      "std": 0.004289332803257127,
+      "folds": [
+        0.9458082445576655,
+        0.9467345993515517,
+        0.952292728114868,
+        0.9430291801760075,
+        0.9393237610004632
+      ]
+    },
+    "f1": {
+      "mean": 0.9432973417727023,
+      "std": 0.0032915102065864264,
+      "folds": [
+        0.9460273337966181,
+        0.9399862037249943,
+        0.948339483394834,
+        0.9415028901734104,
+        0.9406307977736549
+      ]
+    },
+    "roc_auc": {
+      "mean": 0.9959539903658806,
+      "std": 0.0005733174823276901,
+      "folds": [
+        0.9967113759872884,
+        0.9961186787667216,
+        0.9960505217585606,
+        0.99493743396282,
+        0.995951941354012
+      ]
+    }
+  },
+  "automation_eligible": false,
+  "fraud_click_classifier": false
+}

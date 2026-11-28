@@ -1,0 +1,2 @@
+valid_score_min,valid_score_max,fraud_score_min,fraud_score_max,scores_separate_target_perfectly,midpoint_boundary_for_audit_only,decision
+0.0,0.75,0.76,1.0,True,0.755,EXCLUDED_FROM_MAIN_MODEL_TO_AVOID_TARGET_LEAKAGE

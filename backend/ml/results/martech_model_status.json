@@ -1,0 +1,27 @@
+{
+  "status": "benchmark_only",
+  "ready_for_prediction": true,
+  "automation_eligible": false,
+  "reason": "Model dilatih pada dataset MarTech yang disimulasikan dan memiliki skema yang tidak kompatibel dengan event CPA ClickGuard. Hasil ini hanya benchmark terpisah.",
+  "test_metrics": {
+    "accuracy": 0.88136,
+    "balanced_accuracy": 0.8815718971385889,
+    "precision_fraud": 0.8696690091733276,
+    "recall_fraud": 0.8892271405847183,
+    "f1_fraud": 0.8793393360815795,
+    "roc_auc": 0.9403143755249943,
+    "average_precision": 0.9304601440416005,
+    "threshold": 0.42,
+    "rows": 75000,
+    "confusion_matrix": [
+      [
+        33679,
+        4859
+      ],
+      [
+        4039,
+        32423
+      ]
+    ]
+  }
+}

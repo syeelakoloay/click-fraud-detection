@@ -1,0 +1,137 @@
+### C. Isi 3 event riwayat untuk IP 10.10.10.2 (jalankan SEKALI)
+POST http://localhost:5000/api/events/ingest
+Content-Type: application/json
+
+{
+  "events": [
+    {"click_id": "RIW-001", "timestamp": "2026-10-22T10:00:00Z", "user_id": "uji-user-1", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "referrer_url": "https://example.test/ref", "page_url": "https://example.test/landing", "click_duration": 2.1, "scroll_depth": 40, "mouse_movement": 12, "keystrokes_detected": 2, "ad_position": "Top", "click_frequency": 1, "time_since_last_click": 10, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0, "bot_likelihood_score": 0.2, "is_fraudulent": 0},
+    {"click_id": "RIW-002", "timestamp": "2026-10-22T10:02:00Z", "user_id": "uji-user-1", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "referrer_url": "https://example.test/ref", "page_url": "https://example.test/landing", "click_duration": 0.3, "scroll_depth": 5, "mouse_movement": 1, "keystrokes_detected": 0, "ad_position": "Top", "click_frequency": 8, "time_since_last_click": 2, "device_ip_reputation": "Bad", "VPN_usage": 1, "proxy_usage": 1, "bot_likelihood_score": 0.9, "is_fraudulent": 1},
+    {"click_id": "RIW-003", "timestamp": "2026-10-22T10:05:00Z", "user_id": "uji-user-1", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "referrer_url": "https://example.test/ref", "page_url": "https://example.test/landing", "click_duration": 1.8, "scroll_depth": 30, "mouse_movement": 20, "keystrokes_detected": 1, "ad_position": "Top", "click_frequency": 2, "time_since_last_click": 20, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0, "bot_likelihood_score": 0.3, "is_fraudulent": 0}
+  ]
+}
+
+### Skenario 1: IP baru tanpa riwayat
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-001", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.1", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### Skenario 2: IP yang punya riwayat
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-002", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### Skenario 3: riwayat di luar jendela 10 menit
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-003", "timestamp": "2026-10-22T10:30:00Z", "ip_address": "10.10.10.2", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### Skenario 4: input tidak valid (field browser dihapus)
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-004", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.1", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A20: uji endpoint prediction langsung
+POST http://localhost:5000/api/predict
+Content-Type: application/json
+
+{"click_hour": 10, "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "VPN_usage": 0, "proxy_usage": 0, "click_day_of_week": "Thursday", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "device_ip_reputation": "Good"}
+
+### A23: uji langsung endpoint prediction (cek kompatibilitas setelah A22)
+POST http://localhost:5000/api/predict
+Content-Type: application/json
+
+{"click_hour": 10, "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "VPN_usage": 0, "proxy_usage": 0, "click_day_of_week": "Thursday", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "device_ip_reputation": "Good"}
+
+### A23-1: event fraud dari IP baru -> IP harus diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-023-A", "timestamp": "2026-10-29T23:05:39Z", "ip_address": "10.10.10.9", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A23-2: daftar IP yang diblokir
+GET http://localhost:5000/api/blocked-ips
+
+### A23-3: event valid dari IP lain -> tidak diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-023-B", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.1", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A23-4: input tidak valid (field browser dihapus) -> tidak boleh memblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-023-C", "timestamp": "2026-10-29T10:06:00Z", "ip_address": "10.10.10.8", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-0: daftar blokir awal
+GET http://localhost:5000/api/blocked-ips
+
+### A25-1: event fraud pertama dari 10.10.10.25 -> model jalan, IP diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-A1", "timestamp": "2026-10-29T23:05:39Z", "ip_address": "10.10.10.25", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-2: event kedua dari IP yang sama -> blocked by IP list
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-A2", "timestamp": "2026-10-29T23:06:10Z", "ip_address": "10.10.10.25", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-3: IP sama, fitur terlihat valid -> tetap blocked by IP list
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-A3", "timestamp": "2026-10-29T23:07:00Z", "ip_address": "10.10.10.25", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-4: IP lain, fitur valid -> jalur normal, tidak diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-B", "timestamp": "2026-10-29T23:08:00Z", "ip_address": "10.10.10.26", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-5: input tidak valid dari IP terblokir -> tetap ditolak 400
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-025-C", "timestamp": "2026-10-29T23:09:00Z", "ip_address": "10.10.10.25", "device_type": "Desktop", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A25-6: daftar blokir akhir
+GET http://localhost:5000/api/blocked-ips
+
+### A27-I: impor dataset 5.000 event (jalankan SEKALI)
+POST http://localhost:5000/api/events/import
+Content-Type: text/csv
+
+< ../dataset/click_fraud_dataset.csv
+
+### A27-0: daftar blokir awal (harus kosong)
+GET http://localhost:5000/api/blocked-ips
+
+### A27-1: event fraud dari IP 10.10.10.27 -> diprediksi model, IP diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-027-A", "timestamp": "2026-10-29T23:05:39Z", "ip_address": "10.10.10.27", "device_type": "Mobile", "browser": "Firefox", "operating_system": "Windows", "ad_position": "Side", "click_duration": 3.41, "scroll_depth": 28, "mouse_movement": 402, "keystrokes_detected": 18, "click_frequency": 1, "time_since_last_click": 384, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A27-2: event berikutnya dari IP yang sama -> blocked by IP list
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-027-B", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.27", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A27-3: IP lain 10.10.10.28 (kontrol) -> diproses model, tidak diblokir
+POST http://localhost:5000/api/realtime/test-history
+Content-Type: application/json
+
+{"click_id": "UJI-027-C", "timestamp": "2026-10-22T10:06:00Z", "ip_address": "10.10.10.28", "device_type": "Desktop", "browser": "Chrome", "operating_system": "Windows", "ad_position": "Top", "click_duration": 2.5, "scroll_depth": 40, "mouse_movement": 120, "keystrokes_detected": 3, "click_frequency": 1, "time_since_last_click": 30, "device_ip_reputation": "Good", "VPN_usage": 0, "proxy_usage": 0}
+
+### A27-4: daftar blokir sesudah skenario
+GET http://localhost:5000/api/blocked-ips
+
+### A27-5: ringkasan monitoring (memuat blockedIPs untuk dashboard)
+GET http://localhost:5000/api/monitoring/summary
